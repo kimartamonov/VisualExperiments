@@ -10,7 +10,7 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@xyflow/react": "^11.7.6"
+    "@xyflow/react": "^11.7.5"
   },
   "devDependencies": {
     "vite": "^4.4.9",
