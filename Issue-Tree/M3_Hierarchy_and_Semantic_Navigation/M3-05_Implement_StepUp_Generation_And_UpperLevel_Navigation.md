@@ -81,6 +81,8 @@
 - Upper-level model и representative node должны иметь stable ids и предсказуемые paths.
 - Повторный запуск step-up должен следовать зафиксированной manual regeneration policy.
 - Ошибки чтения step-up target позже hardenятся в M5, но базовый happy path должен быть устойчив уже здесь.
+- Новый upper-level model file по умолчанию создается в `models/abstractions/`; если папки еще нет, она создается в момент первого step-up.
+- Slug step-up target может опираться на `Frame.name`, но путь в `frame.stepUp.model` всегда хранится относительно корня проекта.
 
 ## Files and Artifacts Expected to Change
 

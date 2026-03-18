@@ -73,6 +73,8 @@
 - Пустые коллекции `nodes`, `edges` и `frames` сериализуются явно.
 - Не смешивайте create model и editing graph contents в одном issue.
 - Сразу привязывайте open flow к path/id модели, а не к временному UI-состоянию.
+- Если пользователь не выбрал каталог, модель создается в `models/`; первая модель пустого проекта по умолчанию должна стать `models/main.yaml`.
+- Если `project.yaml` еще не содержит `defaultModel`, первая успешно созданная стартовая модель должна заполнить это поле.
 
 ## Files and Artifacts Expected to Change
 

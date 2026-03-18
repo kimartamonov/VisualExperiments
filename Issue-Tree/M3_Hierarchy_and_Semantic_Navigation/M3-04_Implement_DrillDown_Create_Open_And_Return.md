@@ -83,6 +83,8 @@
 - Путь создания новой модели должен следовать M1-01 rules, а не invent new placement logic.
 - Missing target должен вести к понятному recovery prompt, а не к аварии.
 - Single-link UX может быть минимальным, но data model сразу должен оставаться совместимым с несколькими links.
+- Новый drill-down file по умолчанию создается в той же папке, что и текущая модель; в ссылке сохраняется путь относительно корня проекта.
+- Slug дочерней модели может опираться на `Node.label`, но identity должна определяться `id`, а не label.
 
 ## Files and Artifacts Expected to Change
 

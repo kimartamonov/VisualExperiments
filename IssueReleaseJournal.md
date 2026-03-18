@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M1-01`
-- Title: `Finalize project manifest and file placement contract`
+- Issue ID: `M1-02`
+- Title: `Implement project bootstrap create and open flow`
 - Status: `Current`
 - Milestone: `M1. Project Foundation`
-- Issue File: `Issue-Tree/M1_Project_Foundation/M1-01_Finalize_Project_Manifest_And_File_Placement.md`
+- Issue File: `Issue-Tree/M1_Project_Foundation/M1-02_Implement_Project_Bootstrap_Create_And_Open_Flow.md`
 - Milestone README: `Issue-Tree/M1_Project_Foundation/README.md`
-- Depends On: `None`
-- Next Issue On Success: `M1-02`
+- Depends On: `M1-01`
+- Next Issue On Success: `M1-03`
 - Blockers: `None`
 
 ---
@@ -45,8 +45,8 @@
 
 | Order | Issue ID | Milestone | Status | Report | Tech Doc | Notes |
 |---|---|---|---|---|---|---|
-| 1 | M1-01 | M1 | Current | - | - | Planning gate for manifest and file placement |
-| 2 | M1-02 | M1 | Pending | - | - | Project bootstrap create/open |
+| 1 | M1-01 | M1 | Done | `IssueReport/M1-01_Implementation_Report.md` | `IssueReport/M1-01_Technical_Documentation.md` | Manifest v1 and file placement contract fixed |
+| 2 | M1-02 | M1 | Current | - | - | Project bootstrap create/open |
 | 3 | M1-03 | M1 | Pending | - | - | Workspace shell and project tree |
 | 4 | M1-04 | M1 | Pending | - | - | Foundation validation |
 | 5 | M1-05 | M1 | Pending | - | - | Foundation blocker fixes |
@@ -81,13 +81,14 @@
 
 | Completed On | Issue ID | Milestone | Report | Tech Doc | Notes |
 |---|---|---|---|---|---|
-| - | - | - | - | - | No completed issues yet |
+| 2026-03-18 | M1-01 | M1 | `IssueReport/M1-01_Implementation_Report.md` | `IssueReport/M1-01_Technical_Documentation.md` | Fixed manifest v1, root-relative path rules, and unblocked M1-02/M2-01/M3-04/M3-05 |
 
 ---
 
 ## Latest Execution Note
 
-- Journal initialized.
-- Current execution should start from `M1-01`.
-- After successful completion of `M1-01`, the journal should advance to `M1-02`.
-- If `M1-01` cannot be completed, it must remain current and the blocker must be recorded here.
+- Completed `M1-01` on `2026-03-18`.
+- Manifest v1 is now fixed: required fields are `id` and `name`; `defaultModel` and `notations` remain optional.
+- File placement contract is now fixed: bootstrap creates `models/`, `notations/` is lazy, first model defaults to `models/main.yaml`, drill-down creates beside the source model, step-up creates in `models/abstractions/`.
+- Next issue to execute is `M1-02`.
+- Execution may continue without additional planning decisions for project bootstrap path semantics.
