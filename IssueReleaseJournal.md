@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M1-02`
-- Title: `Implement project bootstrap create and open flow`
+- Issue ID: `M1-05`
+- Title: `Fix project foundation blockers`
 - Status: `Current`
 - Milestone: `M1. Project Foundation`
-- Issue File: `Issue-Tree/M1_Project_Foundation/M1-02_Implement_Project_Bootstrap_Create_And_Open_Flow.md`
+- Issue File: `Issue-Tree/M1_Project_Foundation/M1-05_Fix_Project_Foundation_Blockers.md`
 - Milestone README: `Issue-Tree/M1_Project_Foundation/README.md`
-- Depends On: `M1-01`
-- Next Issue On Success: `M1-03`
+- Depends On: `M1-04`
+- Next Issue On Success: `M2-01`
 - Blockers: `None`
 
 ---
@@ -46,10 +46,10 @@
 | Order | Issue ID | Milestone | Status | Report | Tech Doc | Notes |
 |---|---|---|---|---|---|---|
 | 1 | M1-01 | M1 | Done | `IssueReport/M1-01_Implementation_Report.md` | `IssueReport/M1-01_Technical_Documentation.md` | Manifest v1 and file placement contract fixed |
-| 2 | M1-02 | M1 | Current | - | - | Project bootstrap create/open |
-| 3 | M1-03 | M1 | Pending | - | - | Workspace shell and project tree |
-| 4 | M1-04 | M1 | Pending | - | - | Foundation validation |
-| 5 | M1-05 | M1 | Pending | - | - | Foundation blocker fixes |
+| 2 | M1-02 | M1 | Done | `IssueReport/M1-02_Implementation_Report.md` | `IssueReport/M1-02_Technical_Documentation.md` | Working create/open project flow with manifest bootstrap and workspace context |
+| 3 | M1-03 | M1 | Done | `IssueReport/M1-03_Implementation_Report.md` | `IssueReport/M1-03_Technical_Documentation.md` | Three-panel shell and real file tree API/rendering are now stable |
+| 4 | M1-04 | M1 | Done | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation pass completed; no critical/high findings observed |
+| 5 | M1-05 | M1 | Current | - | - | Foundation blocker fixes |
 | 6 | M2-01 | M2 | Pending | - | - | Create freeform model |
 | 7 | M2-02 | M2 | Pending | - | - | Node editing |
 | 8 | M2-03 | M2 | Pending | - | - | Edge editing |
@@ -82,13 +82,16 @@
 | Completed On | Issue ID | Milestone | Report | Tech Doc | Notes |
 |---|---|---|---|---|---|
 | 2026-03-18 | M1-01 | M1 | `IssueReport/M1-01_Implementation_Report.md` | `IssueReport/M1-01_Technical_Documentation.md` | Fixed manifest v1, root-relative path rules, and unblocked M1-02/M2-01/M3-04/M3-05 |
+| 2026-03-18 | M1-02 | M1 | `IssueReport/M1-02_Implementation_Report.md` | `IssueReport/M1-02_Technical_Documentation.md` | Implemented backend/frontend create-open project flow and unblocked M1-03/M2-01 |
+| 2026-03-18 | M1-03 | M1 | `IssueReport/M1-03_Implementation_Report.md` | `IssueReport/M1-03_Technical_Documentation.md` | Added file-tree API, three-panel shell, and tree refresh path for later model flows |
+| 2026-03-18 | M1-04 | M1 | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation passed for steps 1-2 and AC-1/AC-2; no critical/high blockers were found |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M1-01` on `2026-03-18`.
-- Manifest v1 is now fixed: required fields are `id` and `name`; `defaultModel` and `notations` remain optional.
-- File placement contract is now fixed: bootstrap creates `models/`, `notations/` is lazy, first model defaults to `models/main.yaml`, drill-down creates beside the source model, step-up creates in `models/abstractions/`.
-- Next issue to execute is `M1-02`.
-- Execution may continue without additional planning decisions for project bootstrap path semantics.
+- Completed `M1-04` on `2026-03-18`.
+- AC-1 and AC-2, plus demo steps 1-2, passed in the validation harness and supporting checks.
+- No critical/high blockers were found in the current foundation validation pass.
+- Next issue to execute is `M1-05`.
+- Execution may continue without additional planning decisions; the bugfix slot now exists mainly to confirm that no foundation blockers remain before `M2-01`.
