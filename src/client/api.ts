@@ -20,6 +20,16 @@ export interface ProjectTreeNode {
   children?: ProjectTreeNode[];
 }
 
+export interface ModelDetails {
+  id: string;
+  path: string;
+  name: string;
+  notation: string;
+  nodes: unknown[];
+  edges: unknown[];
+  frames: unknown[];
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   const response = await fetch("/api/projects");
   return parseResponse<{ projects: ProjectSummary[] }>(response).then((payload) => payload.projects);
@@ -45,6 +55,23 @@ export async function getProject(projectId: string): Promise<ProjectDetails> {
 export async function getProjectTree(projectId: string): Promise<ProjectTreeNode> {
   const response = await fetch(`/api/projects/${projectId}/tree`);
   return parseResponse<{ tree: ProjectTreeNode }>(response).then((payload) => payload.tree);
+}
+
+export async function createModel(projectId: string, name: string, selectedPath: string | null): Promise<ModelDetails> {
+  const response = await fetch(`/api/projects/${projectId}/models`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ name, selectedPath })
+  });
+
+  return parseResponse<{ model: ModelDetails }>(response).then((payload) => payload.model);
+}
+
+export async function getModel(projectId: string, modelPath: string): Promise<ModelDetails> {
+  const response = await fetch(`/api/projects/${projectId}/models?path=${encodeURIComponent(modelPath)}`);
+  return parseResponse<{ model: ModelDetails }>(response).then((payload) => payload.model);
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {

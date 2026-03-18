@@ -1,10 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import {
+  createModel,
   createProject,
+  getModel,
   getProject,
   getProjectTree,
   listProjects,
+  ModelDetails,
   ProjectDetails,
   ProjectSummary,
   ProjectTreeNode
@@ -27,12 +30,16 @@ export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [currentProject, setCurrentProject] = useState<ProjectDetails | null>(null);
   const [projectTree, setProjectTree] = useState<ProjectTreeNode | null>(null);
+  const [currentModel, setCurrentModel] = useState<ModelDetails | null>(null);
   const [selectedTreePath, setSelectedTreePath] = useState<string>("project.yaml");
   const [projectName, setProjectName] = useState("");
+  const [modelName, setModelName] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingProject, setLoadingProject] = useState(false);
   const [loadingTree, setLoadingTree] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [loadingModel, setLoadingModel] = useState(false);
+  const [submittingProject, setSubmittingProject] = useState(false);
+  const [submittingModel, setSubmittingModel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => readProjectIdFromLocation());
 
@@ -51,6 +58,8 @@ export function App() {
     if (!activeProjectId) {
       setCurrentProject(null);
       setProjectTree(null);
+      setCurrentModel(null);
+      setSelectedTreePath("project.yaml");
       return;
     }
 
@@ -78,8 +87,15 @@ export function App() {
       const [project, tree] = await Promise.all([getProject(projectId), getProjectTree(projectId)]);
       setCurrentProject(project);
       setProjectTree(tree);
-      setSelectedTreePath("project.yaml");
       setError(null);
+
+      if (project.defaultModel) {
+        setSelectedTreePath(project.defaultModel);
+        await openModel(projectId, project.defaultModel);
+      } else {
+        setSelectedTreePath("project.yaml");
+        setCurrentModel(null);
+      }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -87,7 +103,22 @@ export function App() {
     }
   }
 
-  async function refreshTree() {
+  async function openModel(projectId: string, modelPath: string) {
+    setLoadingModel(true);
+
+    try {
+      const model = await getModel(projectId, modelPath);
+      setCurrentModel(model);
+      setSelectedTreePath(model.path);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setLoadingModel(false);
+    }
+  }
+
+  async function refreshTree(nextSelectedPath?: string | null) {
     if (!activeProjectId) {
       return;
     }
@@ -95,10 +126,16 @@ export function App() {
     setLoadingTree(true);
 
     try {
-      const tree = await getProjectTree(activeProjectId);
+      const [tree, project] = await Promise.all([getProjectTree(activeProjectId), getProject(activeProjectId)]);
       setProjectTree(tree);
+      setCurrentProject(project);
 
-      if (selectedTreePath && !treeContainsPath(tree, selectedTreePath)) {
+      const candidatePath = nextSelectedPath ?? selectedTreePath;
+      if (candidatePath && treeContainsPath(tree, candidatePath)) {
+        setSelectedTreePath(candidatePath);
+      } else if (project.defaultModel && treeContainsPath(tree, project.defaultModel)) {
+        setSelectedTreePath(project.defaultModel);
+      } else {
         setSelectedTreePath("project.yaml");
       }
 
@@ -112,7 +149,7 @@ export function App() {
 
   async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
+    setSubmittingProject(true);
 
     try {
       const project = await createProject(projectName);
@@ -123,18 +160,59 @@ export function App() {
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
-      setSubmitting(false);
+      setSubmittingProject(false);
+    }
+  }
+
+  async function handleCreateModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activeProjectId) {
+      return;
+    }
+
+    setSubmittingModel(true);
+
+    try {
+      const model = await createModel(activeProjectId, modelName, selectedTreePath);
+      setModelName("");
+      await Promise.all([refreshTree(model.path), openModel(activeProjectId, model.path), loadProjects()]);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSubmittingModel(false);
+    }
+  }
+
+  function handleTreeSelect(node: ProjectTreeNode) {
+    const nextPath = node.path || "project-root";
+    setSelectedTreePath(nextPath);
+
+    if (activeProjectId && isModelFilePath(nextPath)) {
+      void openModel(activeProjectId, nextPath);
+      return;
+    }
+
+    if (!isModelFilePath(nextPath)) {
+      setCurrentModel((existing) => {
+        if (existing && existing.path === nextPath) {
+          return null;
+        }
+
+        return existing;
+      });
     }
   }
 
   return (
     <div className="screen-shell">
       <section className="browser-panel">
-        <div className="eyebrow">M1-03 · Workspace shell</div>
+        <div className="eyebrow">M2-01 · Freeform bootstrap</div>
         <h1>VisualExperiments</h1>
         <p className="lede">
-          Create a project, open it, and inspect the real file structure through a stable three-panel
-          workspace shell.
+          Create a real project, open its workspace, and bootstrap the first freeform model directly from the
+          file tree.
         </p>
 
         <form className="project-form" onSubmit={handleCreateProject}>
@@ -148,8 +226,8 @@ export function App() {
               placeholder="Business Model Canvas"
               autoComplete="off"
             />
-            <button type="submit" disabled={submitting}>
-              {submitting ? "Creating..." : "Create project"}
+            <button type="submit" disabled={submittingProject}>
+              {submittingProject ? "Creating..." : "Create project"}
             </button>
           </div>
         </form>
@@ -166,13 +244,13 @@ export function App() {
         {!loadingProjects && projects.length === 0 ? (
           <div className="empty-state">
             <h3>No projects yet</h3>
-            <p>Create the first one to bootstrap a folder with <code>project.yaml</code> and <code>models/</code>.</p>
+            <p>Create the first one to bootstrap a folder with <code>project.yaml</code>, <code>models/</code>, and your first freeform model.</p>
           </div>
         ) : null}
 
         <ul className="project-list">
           {projects.map((project) => (
-            <li key={project.id} className="project-card">
+            <li key={project.id} className={`project-card ${currentProject?.id === project.id ? "project-card-active" : ""}`}>
               <div>
                 <strong>{project.name}</strong>
                 <p>{project.folderName}</p>
@@ -193,7 +271,7 @@ export function App() {
         {!loadingProject && !currentProject ? (
           <div className="workspace-placeholder">
             <h2>Workspace shell will appear here</h2>
-            <p>Select a project from the list or create a new one to enter the file-tree workspace.</p>
+            <p>Select a project from the list or create a new one to enter the freeform workspace.</p>
           </div>
         ) : null}
 
@@ -204,8 +282,8 @@ export function App() {
                 <div className="eyebrow">Project open</div>
                 <h2>{currentProject.name}</h2>
                 <p className="workspace-copy">
-                  The project is open in a stable shell. The left panel reflects the actual file system, while
-                  the center and right panels stay as intentional placeholders for later modeling work.
+                  Create a freeform model from the current directory context or open an existing YAML model from
+                  the tree. The center panel now acts as the empty canvas bootstrap.
                 </p>
               </div>
               <div className="toolbar-actions">
@@ -224,12 +302,33 @@ export function App() {
                   <span className="panel-kicker">Left panel</span>
                   <h3>Project tree</h3>
                 </div>
-                <p className="panel-copy">Folders and YAML files are rendered directly from the backend tree API.</p>
+                <p className="panel-copy">
+                  Create the next model in the selected folder context, or click an existing model YAML file to open it.
+                </p>
+
+                <form className="model-form" onSubmit={handleCreateModel}>
+                  <label htmlFor="modelName">New freeform model</label>
+                  <div className="form-row">
+                    <input
+                      id="modelName"
+                      name="modelName"
+                      value={modelName}
+                      onChange={(event) => setModelName(event.target.value)}
+                      placeholder="Main Map"
+                      autoComplete="off"
+                    />
+                    <button type="submit" disabled={submittingModel}>
+                      {submittingModel ? "Creating..." : "Create model"}
+                    </button>
+                  </div>
+                  <p className="form-hint">Current target: {describeCreationTarget(selectedTreePath)}</p>
+                </form>
+
                 {projectTree ? (
                   <TreeView
                     node={projectTree}
                     selectedPath={selectedTreePath}
-                    onSelectPath={setSelectedTreePath}
+                    onSelectNode={handleTreeSelect}
                   />
                 ) : (
                   <p className="status">Loading tree...</p>
@@ -239,47 +338,85 @@ export function App() {
               <section className="shell-panel shell-panel-center">
                 <div className="panel-header">
                   <span className="panel-kicker">Center panel</span>
-                  <h3>Canvas placeholder</h3>
+                  <h3>{currentModel ? "Empty freeform canvas" : "Canvas waiting for model"}</h3>
                 </div>
                 <div className="placeholder-surface">
-                  <p>
-                    `M1-03` stops at shell readiness. Tree selection already gives a stable target for later
-                    model-opening work without pulling canvas behavior into the wrong issue.
-                  </p>
-                  <div className="selection-card">
-                    <span className="selection-label">Selected path</span>
-                    <strong>{formatSelectedPath(selectedTreePath)}</strong>
-                  </div>
-                  <ul className="structure-list">
-                    <li>Project ID: {currentProject.id}</li>
-                    <li>Default model: {currentProject.defaultModel ?? "Not set yet"}</li>
-                    <li>Has models: {currentProject.hasModels ? "Yes" : "No"}</li>
-                  </ul>
+                  {!currentModel ? (
+                    <>
+                      <p>
+                        Create the first freeform model to bootstrap the editor. Once created, the model opens here
+                        with an intentionally empty canvas surface ready for node editing in `M2-02`.
+                      </p>
+                      <div className="canvas-surface canvas-surface-empty">
+                        <div className="canvas-badge">No model open</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        The model is now open with `notation: freeform` and explicit empty collections. This panel
+                        stays intentionally minimal until graph editing arrives in the next issue.
+                      </p>
+                      <div className="selection-card">
+                        <span className="selection-label">Opened model</span>
+                        <strong>{currentModel.name}</strong>
+                        <span className="selection-path">{currentModel.path}</span>
+                      </div>
+                      <div className="canvas-surface">
+                        <div className="canvas-badge">notation: {currentModel.notation}</div>
+                        <div className="canvas-grid">
+                          <div className="canvas-node-placeholder">Empty canvas</div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </section>
 
               <section className="shell-panel">
                 <div className="panel-header">
                   <span className="panel-kicker">Right panel</span>
-                  <h3>Properties placeholder</h3>
+                  <h3>{currentModel ? "Model properties" : "Project properties"}</h3>
                 </div>
                 <div className="properties-stack">
-                  <div className="property-card">
-                    <span className="selection-label">Project root</span>
-                    <strong>{currentProject.projectRootName}/</strong>
-                  </div>
-                  <div className="property-card">
-                    <span className="selection-label">Manifest</span>
-                    <strong>{currentProject.manifestPath}</strong>
-                  </div>
-                  <div className="property-card">
-                    <span className="selection-label">Models folder</span>
-                    <strong>{currentProject.modelsPath}</strong>
-                  </div>
-                  <p className="workspace-copy">
-                    This panel is reserved for model and object properties. In `M1-03` it proves the shell
-                    layout and keeps current project context stable through redraw and refresh.
-                  </p>
+                  {!currentModel ? (
+                    <>
+                      <div className="property-card">
+                        <span className="selection-label">Project root</span>
+                        <strong>{currentProject.projectRootName}/</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Default model</span>
+                        <strong>{currentProject.defaultModel ?? "Not set yet"}</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Selected path</span>
+                        <strong>{formatSelectedPath(selectedTreePath)}</strong>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="property-card">
+                        <span className="selection-label">Model ID</span>
+                        <strong>{currentModel.id}</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Notation</span>
+                        <strong>{currentModel.notation}</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Collections</span>
+                        <strong>
+                          nodes {currentModel.nodes.length} · edges {currentModel.edges.length} · frames {currentModel.frames.length}
+                        </strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Model path</span>
+                        <strong>{currentModel.path}</strong>
+                      </div>
+                    </>
+                  )}
+                  {loadingModel ? <p className="status">Loading model...</p> : null}
                 </div>
               </section>
             </div>
@@ -293,13 +430,13 @@ export function App() {
 interface TreeViewProps {
   node: ProjectTreeNode;
   selectedPath: string;
-  onSelectPath: (path: string) => void;
+  onSelectNode: (node: ProjectTreeNode) => void;
 }
 
-function TreeView({ node, selectedPath, onSelectPath }: TreeViewProps) {
+function TreeView({ node, selectedPath, onSelectNode }: TreeViewProps) {
   return (
     <ul className="tree-list">
-      <TreeNodeView node={node} selectedPath={selectedPath} onSelectPath={onSelectPath} depth={0} />
+      <TreeNodeView node={node} selectedPath={selectedPath} onSelectNode={onSelectNode} depth={0} />
     </ul>
   );
 }
@@ -308,9 +445,10 @@ interface TreeNodeViewProps extends TreeViewProps {
   depth: number;
 }
 
-function TreeNodeView({ node, selectedPath, onSelectPath, depth }: TreeNodeViewProps) {
+function TreeNodeView({ node, selectedPath, onSelectNode, depth }: TreeNodeViewProps) {
   const selectionPath = node.path || "project-root";
   const isSelected = selectedPath === selectionPath;
+  const icon = node.kind === "directory" ? "[dir]" : "[yml]";
 
   return (
     <li>
@@ -318,9 +456,9 @@ function TreeNodeView({ node, selectedPath, onSelectPath, depth }: TreeNodeViewP
         type="button"
         className={`tree-node ${isSelected ? "tree-node-selected" : ""}`}
         style={{ paddingLeft: `${16 + depth * 14}px` }}
-        onClick={() => onSelectPath(selectionPath)}
+        onClick={() => onSelectNode(node)}
       >
-        <span className="tree-icon">{node.kind === "directory" ? "▾" : "•"}</span>
+        <span className="tree-icon">{icon}</span>
         <span>{node.path ? node.name : `${node.name}/`}</span>
         {isSelected ? <span className="tree-current">Current</span> : null}
       </button>
@@ -331,7 +469,7 @@ function TreeNodeView({ node, selectedPath, onSelectPath, depth }: TreeNodeViewP
               key={`${selectionPath}-${child.path}`}
               node={child}
               selectedPath={selectedPath}
-              onSelectPath={onSelectPath}
+              onSelectNode={onSelectNode}
               depth={depth + 1}
             />
           ))}
@@ -361,4 +499,16 @@ function treeContainsPath(node: ProjectTreeNode, path: string): boolean {
 
 function formatSelectedPath(path: string): string {
   return path === "project-root" ? "/" : path;
+}
+
+function isModelFilePath(path: string): boolean {
+  return path !== "project.yaml" && path.endsWith(".yaml");
+}
+
+function describeCreationTarget(path: string): string {
+  if (!path || path === "project-root" || path === "project.yaml") {
+    return "models/ (or models/main.yaml for the first model)";
+  }
+
+  return formatSelectedPath(path);
 }

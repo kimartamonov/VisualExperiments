@@ -79,11 +79,51 @@ async function testProjectTreeAndRefresh() {
   assert.equal(modelNode?.kind, "file");
 }
 
+async function testCreateFreeformModelAndDefaultModel() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Freeform Studio");
+
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const manifestPath = path.join(projectsRoot, created.folderName, "project.yaml");
+  const modelPath = path.join(projectsRoot, created.folderName, model.path);
+  const manifestText = await readFile(manifestPath, "utf8");
+  const modelText = await readFile(modelPath, "utf8");
+
+  assert.equal(model.path, "models/main.yaml");
+  assert.equal(model.notation, "freeform");
+  assert.deepEqual(model.nodes, []);
+  assert.deepEqual(model.edges, []);
+  assert.deepEqual(model.frames, []);
+  assert.match(manifestText, /^defaultModel: models\/main\.yaml$/m);
+  assert.match(modelText, /^notation: freeform$/m);
+  assert.match(modelText, /^nodes: \[\]$/m);
+  assert.match(modelText, /^edges: \[\]$/m);
+  assert.match(modelText, /^frames: \[\]$/m);
+}
+
+async function testOpenModelAndSecondaryPlacement() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Freeform Studio");
+
+  await service.createFreeformModel(created.id, "Main Map", null);
+  const secondary = await service.createFreeformModel(created.id, "Research Map", "models");
+  const reopened = await service.getModel(created.id, secondary.path);
+
+  assert.equal(secondary.path, "models/research-map.yaml");
+  assert.equal(reopened.path, "models/research-map.yaml");
+  assert.equal(reopened.name, "Research Map");
+  assert.equal(reopened.notation, "freeform");
+}
+
 const cases = [
   ["createProject bootstraps a project folder with manifest and models directory", testCreateProjectBootstrap],
   ["listProjects and getProject read the manifest back from disk", testListAndReopen],
   ["createProject rejects conflicting folder slugs with a readable error", testConflictHandling],
-  ["getProjectTree reflects real folders and YAML files after the project changes", testProjectTreeAndRefresh]
+  ["getProjectTree reflects real folders and YAML files after the project changes", testProjectTreeAndRefresh],
+  ["createFreeformModel persists an empty freeform model and updates defaultModel", testCreateFreeformModelAndDefaultModel],
+  ["getModel reopens persisted freeform models and secondary placement stays stable", testOpenModelAndSecondaryPlacement]
 ];
 
 for (const [name, run] of cases) {

@@ -166,6 +166,11 @@ button:disabled {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.project-card-active {
+  border-color: rgba(16, 42, 67, 0.2);
+  background: rgba(234, 243, 255, 0.9);
+}
+
 .project-card + .project-card {
   margin-top: 12px;
 }
@@ -253,6 +258,30 @@ button:disabled {
   color: #7b8794;
 }
 
+.model-form {
+  margin: 18px 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(246, 249, 252, 0.92);
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.model-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #243b53;
+}
+
+.form-hint,
+.selection-path {
+  display: block;
+  margin-top: 8px;
+  color: #7b8794;
+  font-size: 0.85rem;
+}
+
 .tree-list .tree-list {
   margin-top: 6px;
 }
@@ -281,8 +310,9 @@ button:disabled {
 }
 
 .tree-icon {
-  width: 14px;
+  width: 36px;
   color: #7b8794;
+  font-size: 0.72rem;
 }
 
 .tree-current {
@@ -318,6 +348,51 @@ button:disabled {
 .selection-card strong,
 .property-card strong {
   color: #102a43;
+}
+
+.canvas-surface {
+  min-height: 280px;
+  padding: 18px;
+  border-radius: 20px;
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)),
+    linear-gradient(90deg, rgba(143, 160, 182, 0.12) 1px, transparent 1px),
+    linear-gradient(rgba(143, 160, 182, 0.12) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.canvas-surface-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 42, 67, 0.08);
+  color: #334e68;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.canvas-grid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.canvas-node-placeholder {
+  padding: 18px 26px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px dashed rgba(82, 96, 109, 0.34);
+  color: #52606d;
+  font-weight: 600;
 }
 
 .structure-list li + li {

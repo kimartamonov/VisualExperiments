@@ -35,6 +35,19 @@ export interface ProjectTreeNode {
   children?: ProjectTreeNode[];
 }
 
+export interface ModelDocument {
+  id: string;
+  name: string;
+  notation: "freeform" | string;
+  nodes: unknown[];
+  edges: unknown[];
+  frames: unknown[];
+}
+
+export interface ModelDetails extends ModelDocument {
+  path: string;
+}
+
 interface ProjectRecord {
   folderName: string;
   manifest: ProjectManifest;
@@ -98,10 +111,67 @@ export class ProjectService {
   }
 
   async getProjectTree(projectId: string): Promise<ProjectTreeNode> {
-    const record = await this.findProjectRecord(projectId);
-    const projectRoot = path.join(this.projectsRoot, record.folderName);
+    const { projectRoot } = await this.resolveProjectContext(projectId);
 
     return this.readTree(projectRoot, "");
+  }
+
+  async createFreeformModel(projectId: string, rawName: string, selectedPath?: string | null): Promise<ModelDetails> {
+    const name = rawName.trim();
+
+    if (!name) {
+      throw new ValidationError("Model name is required.");
+    }
+
+    const context = await this.resolveProjectContext(projectId);
+    const modelsRoot = path.join(context.projectRoot, "models");
+    const normalizedSelection = normalizeRelativePath(selectedPath);
+    const selectedDirectory = await this.resolveSelectedDirectory(context.projectRoot, modelsRoot, normalizedSelection);
+    const shouldUseMainName = !(await this.projectHasModels(modelsRoot)) && !selectedDirectory;
+    const modelPath = shouldUseMainName
+      ? "models/main.yaml"
+      : await this.createUniqueModelPath(context.projectRoot, selectedDirectory, name);
+    const absoluteModelPath = resolveInsideRoot(context.projectRoot, modelPath);
+    const model: ModelDocument = {
+      id: `model-${randomUUID()}`,
+      name,
+      notation: "freeform",
+      nodes: [],
+      edges: [],
+      frames: []
+    };
+
+    await fs.mkdir(path.dirname(absoluteModelPath), { recursive: true });
+    await fs.writeFile(absoluteModelPath, serializeYaml(model), "utf8");
+
+    if (!context.record.manifest.defaultModel) {
+      context.record.manifest.defaultModel = modelPath;
+      await fs.writeFile(context.manifestAbsolutePath, serializeYaml(context.record.manifest), "utf8");
+    }
+
+    return this.getModel(projectId, modelPath);
+  }
+
+  async getModel(projectId: string, requestedPath: string): Promise<ModelDetails> {
+    const { projectRoot } = await this.resolveProjectContext(projectId);
+    const normalizedPath = normalizeRelativePath(requestedPath);
+
+    if (!normalizedPath || !normalizedPath.endsWith(".yaml") || normalizedPath === "project.yaml") {
+      throw new ValidationError("A valid model path is required.");
+    }
+
+    const absolutePath = resolveInsideRoot(projectRoot, normalizedPath);
+
+    if (!(await pathExists(absolutePath))) {
+      throw new NotFoundError(`Model "${normalizedPath}" was not found.`);
+    }
+
+    const model = await readModel(absolutePath);
+
+    return {
+      path: normalizedPath,
+      ...model
+    };
   }
 
   private async readProjectRecords(): Promise<ProjectRecord[]> {
@@ -140,6 +210,21 @@ export class ProjectService {
 
   private async ensureProjectsRoot(): Promise<void> {
     await fs.mkdir(this.projectsRoot, { recursive: true });
+  }
+
+  private async resolveProjectContext(projectId: string): Promise<{
+    record: ProjectRecord;
+    projectRoot: string;
+    manifestAbsolutePath: string;
+  }> {
+    const record = await this.findProjectRecord(projectId);
+    const projectRoot = path.join(this.projectsRoot, record.folderName);
+
+    return {
+      record,
+      projectRoot,
+      manifestAbsolutePath: path.join(projectRoot, "project.yaml")
+    };
   }
 
   private toSummary(record: ProjectRecord): ProjectSummary {
@@ -181,6 +266,76 @@ export class ProjectService {
       children
     };
   }
+
+  private async projectHasModels(modelsRoot: string): Promise<boolean> {
+    const entries = await fs.readdir(modelsRoot, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const candidatePath = path.join(modelsRoot, entry.name);
+
+      if (entry.isFile() && entry.name.endsWith(".yaml")) {
+        return true;
+      }
+
+      if (entry.isDirectory() && (await this.projectHasModels(candidatePath))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private async resolveSelectedDirectory(
+    projectRoot: string,
+    modelsRoot: string,
+    selectedPath?: string | null
+  ): Promise<string | null> {
+    if (!selectedPath || selectedPath === "project-root" || selectedPath === "project.yaml") {
+      return null;
+    }
+
+    const absoluteSelectedPath = resolveInsideRoot(projectRoot, selectedPath);
+
+    if (!(await pathExists(absoluteSelectedPath))) {
+      return null;
+    }
+
+    const stats = await fs.stat(absoluteSelectedPath);
+    const selectedDirectory = stats.isDirectory() ? absoluteSelectedPath : path.dirname(absoluteSelectedPath);
+    const relativeDirectory = toPosixPath(path.relative(projectRoot, selectedDirectory));
+
+    if (!relativeDirectory || relativeDirectory === ".") {
+      return null;
+    }
+
+    const absoluteModelsRoot = path.resolve(modelsRoot);
+    const absoluteDirectory = path.resolve(selectedDirectory);
+    const relativeToModels = path.relative(absoluteModelsRoot, absoluteDirectory);
+
+    if (relativeToModels.startsWith("..") || path.isAbsolute(relativeToModels)) {
+      return null;
+    }
+
+    return relativeDirectory;
+  }
+
+  private async createUniqueModelPath(projectRoot: string, selectedDirectory: string | null, modelName: string): Promise<string> {
+    const baseDirectory = selectedDirectory ?? "models";
+    const baseSlug = slugify(modelName, "model");
+    let attempt = 0;
+
+    while (true) {
+      const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+      const candidatePath = toPosixPath(path.join(baseDirectory, `${baseSlug}${suffix}.yaml`));
+      const absoluteCandidatePath = resolveInsideRoot(projectRoot, candidatePath);
+
+      if (!(await pathExists(absoluteCandidatePath))) {
+        return candidatePath;
+      }
+
+      attempt += 1;
+    }
+  }
 }
 
 export function slugify(value: string, fallback: string): string {
@@ -195,11 +350,7 @@ export function slugify(value: string, fallback: string): string {
 }
 
 function serializeManifest(manifest: ProjectManifest): string {
-  return `${yaml.dump(manifest, {
-    noRefs: true,
-    sortKeys: false,
-    lineWidth: -1
-  }).trimEnd()}\n`;
+  return serializeYaml(manifest);
 }
 
 async function readManifest(manifestPath: string): Promise<ProjectManifest> {
@@ -211,6 +362,17 @@ async function readManifest(manifestPath: string): Promise<ProjectManifest> {
   }
 
   return parsedManifest;
+}
+
+async function readModel(modelPath: string): Promise<ModelDocument> {
+  const rawModel = await fs.readFile(modelPath, "utf8");
+  const parsedModel = yaml.load(rawModel);
+
+  if (!isModelDocument(parsedModel)) {
+    throw new ValidationError(`Invalid model document at "${modelPath}".`);
+  }
+
+  return parsedModel;
 }
 
 function isProjectManifest(value: unknown): value is ProjectManifest {
@@ -238,6 +400,23 @@ function isProjectManifest(value: unknown): value is ProjectManifest {
   return true;
 }
 
+function isModelDocument(value: unknown): value is ModelDocument {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return (
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.notation === "string" &&
+    Array.isArray(record.nodes) &&
+    Array.isArray(record.edges) &&
+    Array.isArray(record.frames)
+  );
+}
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -261,4 +440,32 @@ function compareTreeEntries(left: Dirent, right: Dirent): number {
 
 function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+function normalizeRelativePath(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function resolveInsideRoot(root: string, relativePath: string): string {
+  const absoluteRoot = path.resolve(root);
+  const absolutePath = path.resolve(root, relativePath);
+  const relativeToRoot = path.relative(absoluteRoot, absolutePath);
+
+  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+    throw new ValidationError("Path escapes the project root.");
+  }
+
+  return absolutePath;
+}
+
+function serializeYaml(document: object): string {
+  return `${yaml.dump(document, {
+    noRefs: true,
+    sortKeys: false,
+    lineWidth: -1
+  }).trimEnd()}\n`;
 }

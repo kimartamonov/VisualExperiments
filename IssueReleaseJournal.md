@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M1-05`
-- Title: `Fix project foundation blockers`
+- Issue ID: `M2-02`
+- Title: `Create and persist nodes in freeform models`
 - Status: `Current`
-- Milestone: `M1. Project Foundation`
-- Issue File: `Issue-Tree/M1_Project_Foundation/M1-05_Fix_Project_Foundation_Blockers.md`
-- Milestone README: `Issue-Tree/M1_Project_Foundation/README.md`
-- Depends On: `M1-04`
-- Next Issue On Success: `M2-01`
+- Milestone: `M2. Freeform Modeling Workspace`
+- Issue File: `Issue-Tree/M2_Freeform_Modeling_Workspace/M2-02_Create_And_Persist_Nodes_In_Freeform_Models.md`
+- Milestone README: `Issue-Tree/M2_Freeform_Modeling_Workspace/README.md`
+- Depends On: `M2-01`
+- Next Issue On Success: `M2-03`
 - Blockers: `None`
 
 ---
@@ -49,9 +49,9 @@
 | 2 | M1-02 | M1 | Done | `IssueReport/M1-02_Implementation_Report.md` | `IssueReport/M1-02_Technical_Documentation.md` | Working create/open project flow with manifest bootstrap and workspace context |
 | 3 | M1-03 | M1 | Done | `IssueReport/M1-03_Implementation_Report.md` | `IssueReport/M1-03_Technical_Documentation.md` | Three-panel shell and real file tree API/rendering are now stable |
 | 4 | M1-04 | M1 | Done | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation pass completed; no critical/high findings observed |
-| 5 | M1-05 | M1 | Current | - | - | Foundation blocker fixes |
-| 6 | M2-01 | M2 | Pending | - | - | Create freeform model |
-| 7 | M2-02 | M2 | Pending | - | - | Node editing |
+| 5 | M1-05 | M1 | Done | `IssueReport/M1-05_Implementation_Report.md` | `IssueReport/M1-05_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no foundation fixes were required |
+| 6 | M2-01 | M2 | Done | `IssueReport/M2-01_Implementation_Report.md` | `IssueReport/M2-01_Technical_Documentation.md` | Freeform model create/open flow and empty canvas bootstrap are now stable |
+| 7 | M2-02 | M2 | Current | - | - | Node editing |
 | 8 | M2-03 | M2 | Pending | - | - | Edge editing |
 | 9 | M2-04 | M2 | Pending | - | - | Frame semantic container |
 | 10 | M2-05 | M2 | Pending | - | - | Freeform validation |
@@ -85,13 +85,15 @@
 | 2026-03-18 | M1-02 | M1 | `IssueReport/M1-02_Implementation_Report.md` | `IssueReport/M1-02_Technical_Documentation.md` | Implemented backend/frontend create-open project flow and unblocked M1-03/M2-01 |
 | 2026-03-18 | M1-03 | M1 | `IssueReport/M1-03_Implementation_Report.md` | `IssueReport/M1-03_Technical_Documentation.md` | Added file-tree API, three-panel shell, and tree refresh path for later model flows |
 | 2026-03-18 | M1-04 | M1 | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation passed for steps 1-2 and AC-1/AC-2; no critical/high blockers were found |
+| 2026-03-18 | M1-05 | M1 | `IssueReport/M1-05_Implementation_Report.md` | `IssueReport/M1-05_Technical_Documentation.md` | Bugfix gate confirmed no blocker fixes were needed and unlocked M2-01 |
+| 2026-03-18 | M2-01 | M2 | `IssueReport/M2-01_Implementation_Report.md` | `IssueReport/M2-01_Technical_Documentation.md` | Implemented freeform model create/open lifecycle, defaultModel update, and empty canvas bootstrap |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M1-04` on `2026-03-18`.
-- AC-1 and AC-2, plus demo steps 1-2, passed in the validation harness and supporting checks.
-- No critical/high blockers were found in the current foundation validation pass.
-- Next issue to execute is `M1-05`.
-- Execution may continue without additional planning decisions; the bugfix slot now exists mainly to confirm that no foundation blockers remain before `M2-01`.
+- Completed `M2-01` on `2026-03-18`.
+- Freeform model create/open lifecycle now works through backend YAML persistence and workspace UI.
+- The first model can populate `defaultModel`, new model files appear in tree, and reopen preserves the empty freeform model.
+- Next issue to execute is `M2-02`.
+- Execution may continue without additional decisions; the next gap is node editing inside the now-open freeform model.

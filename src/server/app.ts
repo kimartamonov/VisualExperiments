@@ -56,6 +56,27 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
     }
   });
 
+  app.post("/api/projects/:projectId/models", async (request, response, next) => {
+    try {
+      const name = typeof request.body?.name === "string" ? request.body.name : "";
+      const selectedPath = typeof request.body?.selectedPath === "string" ? request.body.selectedPath : null;
+      const model = await projectService.createFreeformModel(request.params.projectId, name, selectedPath);
+      response.status(201).json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/projects/:projectId/models", async (request, response, next) => {
+    try {
+      const requestedPath = typeof request.query.path === "string" ? request.query.path : "";
+      const model = await projectService.getModel(request.params.projectId, requestedPath);
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get(/^(?!\/api).*/, (_request, response) => {
     response.sendFile(path.join(clientRoot, "index.html"));
   });
