@@ -77,6 +77,103 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
     }
   });
 
+  app.post("/api/projects/:projectId/nodes", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const label = typeof request.body?.label === "string" ? request.body.label : undefined;
+      const position = request.body?.position;
+      const result = await projectService.createNode(request.params.projectId, modelPath, { label, position });
+      response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/projects/:projectId/nodes/:nodeId", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const patch = {
+        label: typeof request.body?.label === "string" ? request.body.label : undefined,
+        description: typeof request.body?.description === "string" ? request.body.description : undefined,
+        position: request.body?.position
+      };
+      const model = await projectService.updateNode(request.params.projectId, modelPath, request.params.nodeId, patch);
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/projects/:projectId/nodes/:nodeId", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.query.path === "string" ? request.query.path : "";
+      const model = await projectService.deleteNode(request.params.projectId, modelPath, request.params.nodeId);
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/projects/:projectId/edges", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const source = typeof request.body?.source === "string" ? request.body.source : "";
+      const target = typeof request.body?.target === "string" ? request.body.target : "";
+      const result = await projectService.createEdge(request.params.projectId, modelPath, { source, target });
+      response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/projects/:projectId/edges/:edgeId", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.query.path === "string" ? request.query.path : "";
+      const model = await projectService.deleteEdge(request.params.projectId, modelPath, request.params.edgeId);
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/projects/:projectId/frames", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const result = await projectService.createFrame(request.params.projectId, modelPath, {
+        name: typeof request.body?.name === "string" ? request.body.name : undefined,
+        description: typeof request.body?.description === "string" ? request.body.description : undefined,
+        nodeIds: request.body?.nodeIds
+      });
+      response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/projects/:projectId/frames/:frameId", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const model = await projectService.updateFrame(request.params.projectId, modelPath, request.params.frameId, {
+        name: typeof request.body?.name === "string" ? request.body.name : undefined,
+        description: typeof request.body?.description === "string" ? request.body.description : undefined,
+        nodeIds: request.body?.nodeIds
+      });
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/projects/:projectId/frames/:frameId", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.query.path === "string" ? request.query.path : "";
+      const model = await projectService.deleteFrame(request.params.projectId, modelPath, request.params.frameId);
+      response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get(/^(?!\/api).*/, (_request, response) => {
     response.sendFile(path.join(clientRoot, "index.html"));
   });

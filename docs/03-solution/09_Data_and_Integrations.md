@@ -55,8 +55,15 @@ project-name/
 - При конфликте существующего пути добавляется числовой suffix: `-2`, `-3` и далее.
 - Переименование model/node/frame label не меняет `id` и не требует автоматического rename файла в MVP.
 
----
+### Step-up synchronization policy v1
 
+- Первый `step-up` для frame без `stepUp` создает upper-level model, representative node и сохраняет каноническую ссылку `frame.stepUp`.
+- Повторный обычный `step-up` по already linked frame reuse existing target и не создает duplicate по умолчанию.
+- Обновление upper-level representation выполняется только explicit user action `regenerate/update`.
+- Между ручными обновлениями representation может быть stale; это допустимо для MVP.
+- Live sync и automatic back-propagation из upper-level model обратно в source frame отсутствуют в v1.
+
+---
 ## Форматы YAML-файлов
 
 ### Manifest (`project.yaml`)
@@ -121,7 +128,7 @@ frames:
   - id: f1
     name: User Context
     description: ""
-    nodes:
+    nodeIds:
       - n1
       - n2
     stepUp:

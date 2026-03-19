@@ -1,17 +1,45 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 
 import {
+  createEdge,
+  createFrame,
   createModel,
+  createNode,
   createProject,
+  deleteEdge,
+  deleteFrame,
+  deleteNode,
   getModel,
   getProject,
   getProjectTree,
   listProjects,
   ModelDetails,
+  ModelFrame,
+  ModelNode,
+  ModelNodePosition,
   ProjectDetails,
   ProjectSummary,
-  ProjectTreeNode
+  ProjectTreeNode,
+  updateFrame,
+  updateNode
 } from "./api";
+
+interface DragState {
+  nodeId: string;
+  pointerOrigin: ModelNodePosition;
+  startPosition: ModelNodePosition;
+  nextPosition: ModelNodePosition;
+}
+
+interface FrameBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const NODE_WIDTH = 176;
+const NODE_HEIGHT = 104;
 
 function readProjectIdFromLocation(): string | null {
   const match = window.location.pathname.match(/^\/projects\/([^/]+)$/);
@@ -32,6 +60,15 @@ export function App() {
   const [projectTree, setProjectTree] = useState<ProjectTreeNode | null>(null);
   const [currentModel, setCurrentModel] = useState<ModelDetails | null>(null);
   const [selectedTreePath, setSelectedTreePath] = useState<string>("project.yaml");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+  const [edgeCreationSourceId, setEdgeCreationSourceId] = useState<string | null>(null);
+  const [nodeLabelDraft, setNodeLabelDraft] = useState("");
+  const [nodeDescriptionDraft, setNodeDescriptionDraft] = useState("");
+  const [frameNameDraft, setFrameNameDraft] = useState("");
+  const [frameDescriptionDraft, setFrameDescriptionDraft] = useState("");
+  const [frameNodeIdsDraft, setFrameNodeIdsDraft] = useState<string[]>([]);
   const [projectName, setProjectName] = useState("");
   const [modelName, setModelName] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -40,8 +77,27 @@ export function App() {
   const [loadingModel, setLoadingModel] = useState(false);
   const [submittingProject, setSubmittingProject] = useState(false);
   const [submittingModel, setSubmittingModel] = useState(false);
+  const [mutatingNodeId, setMutatingNodeId] = useState<string | null>(null);
+  const [mutatingEdgeId, setMutatingEdgeId] = useState<string | null>(null);
+  const [mutatingFrameId, setMutatingFrameId] = useState<string | null>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => readProjectIdFromLocation());
+  const activeProjectIdRef = useRef<string | null>(activeProjectId);
+  const currentModelRef = useRef<ModelDetails | null>(currentModel);
+  const dragStateRef = useRef<DragState | null>(null);
+
+  const selectedNode = currentModel?.nodes.find((node) => node.id === selectedNodeId) ?? null;
+  const selectedEdge = currentModel?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
+  const selectedFrame = currentModel?.frames.find((frame) => frame.id === selectedFrameId) ?? null;
+
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    currentModelRef.current = currentModel;
+  }, [currentModel]);
 
   useEffect(() => {
     const syncRoute = () => setActiveProjectId(readProjectIdFromLocation());
@@ -60,11 +116,104 @@ export function App() {
       setProjectTree(null);
       setCurrentModel(null);
       setSelectedTreePath("project.yaml");
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setEdgeCreationSourceId(null);
       return;
     }
 
     void openProject(activeProjectId);
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!currentModel) {
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setEdgeCreationSourceId(null);
+      return;
+    }
+
+    if (selectedNodeId && !currentModel.nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+
+    if (selectedEdgeId && !currentModel.edges.some((edge) => edge.id === selectedEdgeId)) {
+      setSelectedEdgeId(null);
+    }
+
+    if (selectedFrameId && !currentModel.frames.some((frame) => frame.id === selectedFrameId)) {
+      setSelectedFrameId(null);
+    }
+
+    if (edgeCreationSourceId && !currentModel.nodes.some((node) => node.id === edgeCreationSourceId)) {
+      setEdgeCreationSourceId(null);
+    }
+  }, [currentModel, selectedNodeId, selectedEdgeId, selectedFrameId, edgeCreationSourceId]);
+
+  useEffect(() => {
+    setNodeLabelDraft(selectedNode?.label ?? "");
+    setNodeDescriptionDraft(selectedNode?.description ?? "");
+  }, [selectedNode?.id, selectedNode?.label, selectedNode?.description]);
+
+  useEffect(() => {
+    setFrameNameDraft(selectedFrame?.name ?? "");
+    setFrameDescriptionDraft(selectedFrame?.description ?? "");
+    setFrameNodeIdsDraft(selectedFrame?.nodeIds ?? []);
+  }, [selectedFrame?.id, selectedFrame?.name, selectedFrame?.description, selectedFrame?.nodeIds]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragStateRef.current;
+
+      if (!dragState) {
+        return;
+      }
+
+      const nextPosition = {
+        x: roundCoordinate(Math.max(16, dragState.startPosition.x + (event.clientX - dragState.pointerOrigin.x))),
+        y: roundCoordinate(Math.max(16, dragState.startPosition.y + (event.clientY - dragState.pointerOrigin.y)))
+      };
+
+      dragStateRef.current = {
+        ...dragState,
+        nextPosition
+      };
+
+      setCurrentModel((existing) => updateModelNodePosition(existing, dragState.nodeId, nextPosition));
+    };
+
+    const handlePointerUp = () => {
+      const dragState = dragStateRef.current;
+
+      if (!dragState) {
+        return;
+      }
+
+      dragStateRef.current = null;
+      setDraggingNodeId(null);
+
+      if (
+        dragState.nextPosition.x === dragState.startPosition.x &&
+        dragState.nextPosition.y === dragState.startPosition.y
+      ) {
+        return;
+      }
+
+      void persistNodePatch(dragState.nodeId, { position: dragState.nextPosition }, true);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, []);
 
   async function loadProjects() {
     setLoadingProjects(true);
@@ -95,6 +244,10 @@ export function App() {
       } else {
         setSelectedTreePath("project.yaml");
         setCurrentModel(null);
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        setSelectedFrameId(null);
+        setEdgeCreationSourceId(null);
       }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -110,6 +263,10 @@ export function App() {
       const model = await getModel(projectId, modelPath);
       setCurrentModel(model);
       setSelectedTreePath(model.path);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setEdgeCreationSourceId(null);
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -153,7 +310,7 @@ export function App() {
 
     try {
       const project = await createProject(projectName);
-      setProjects((current) => sortProjects([...current, project]));
+      setProjects((existing) => sortProjects([...existing, project]));
       setProjectName("");
       setError(null);
       navigateTo(`/projects/${project.id}`);
@@ -185,34 +342,319 @@ export function App() {
     }
   }
 
+  async function handleCreateNode(position?: ModelNodePosition) {
+    if (!activeProjectId || !currentModel) {
+      return;
+    }
+
+    setMutatingNodeId("creating-node");
+
+    try {
+      const result = await createNode(
+        activeProjectId,
+        currentModel.path,
+        position ?? getDefaultNodePosition(currentModel.nodes.length)
+      );
+      setCurrentModel(result.model);
+      setSelectedNodeId(result.node.id);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingNodeId(null);
+    }
+  }
+
+  async function handleSaveNodeDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedNode) {
+      return;
+    }
+
+    await persistNodePatch(selectedNode.id, {
+      label: nodeLabelDraft,
+      description: nodeDescriptionDraft
+    });
+  }
+
+  async function handleDeleteSelectedNode() {
+    if (!activeProjectId || !currentModel || !selectedNode) {
+      return;
+    }
+
+    setMutatingNodeId(selectedNode.id);
+
+    try {
+      const model = await deleteNode(activeProjectId, currentModel.path, selectedNode.id);
+      setCurrentModel(model);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setEdgeCreationSourceId((current) => (current === selectedNode.id ? null : current));
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingNodeId(null);
+    }
+  }
+
+  async function handleCreateEdge(targetNodeId: string) {
+    const projectId = activeProjectIdRef.current;
+    const model = currentModelRef.current;
+    const sourceNodeId = edgeCreationSourceId;
+
+    if (!projectId || !model || !sourceNodeId) {
+      return;
+    }
+
+    if (sourceNodeId === targetNodeId) {
+      setError("Choose a different target node to create a directed edge.");
+      return;
+    }
+
+    setMutatingEdgeId("creating-edge");
+
+    try {
+      const result = await createEdge(projectId, model.path, sourceNodeId, targetNodeId);
+      setCurrentModel(result.model);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(result.edge.id);
+      setSelectedFrameId(null);
+      setEdgeCreationSourceId(null);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingEdgeId(null);
+    }
+  }
+
+  async function handleDeleteSelectedEdge() {
+    if (!activeProjectId || !currentModel || !selectedEdge) {
+      return;
+    }
+
+    setMutatingEdgeId(selectedEdge.id);
+
+    try {
+      const model = await deleteEdge(activeProjectId, currentModel.path, selectedEdge.id);
+      setCurrentModel(model);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(null);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingEdgeId(null);
+    }
+  }
+
+  async function handleCreateFrame() {
+    if (!activeProjectId || !currentModel) {
+      return;
+    }
+
+    setMutatingFrameId("creating-frame");
+
+    try {
+      const result = await createFrame(activeProjectId, currentModel.path);
+      setCurrentModel(result.model);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedFrameId(result.frame.id);
+      setEdgeCreationSourceId(null);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingFrameId(null);
+    }
+  }
+
+  async function handleSaveFrameDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activeProjectId || !currentModel || !selectedFrame) {
+      return;
+    }
+
+    setMutatingFrameId(selectedFrame.id);
+
+    try {
+      const model = await updateFrame(activeProjectId, currentModel.path, selectedFrame.id, {
+        name: frameNameDraft,
+        description: frameDescriptionDraft,
+        nodeIds: frameNodeIdsDraft
+      });
+      setCurrentModel(model);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingFrameId(null);
+    }
+  }
+
+  async function handleDeleteSelectedFrame() {
+    if (!activeProjectId || !currentModel || !selectedFrame) {
+      return;
+    }
+
+    setMutatingFrameId(selectedFrame.id);
+
+    try {
+      const model = await deleteFrame(activeProjectId, currentModel.path, selectedFrame.id);
+      setCurrentModel(model);
+      setSelectedFrameId(null);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingFrameId(null);
+    }
+  }
+
+  async function persistNodePatch(
+    nodeId: string,
+    patch: Partial<Pick<ModelNode, "label" | "description" | "position">>,
+    shouldRecoverOnError = false
+  ) {
+    const projectId = activeProjectIdRef.current;
+    const model = currentModelRef.current;
+
+    if (!projectId || !model) {
+      return;
+    }
+
+    setMutatingNodeId(nodeId);
+
+    try {
+      const updatedModel = await updateNode(projectId, model.path, nodeId, patch);
+      setCurrentModel(updatedModel);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+
+      if (shouldRecoverOnError) {
+        await openModel(projectId, model.path);
+      }
+    } finally {
+      setMutatingNodeId(null);
+    }
+  }
+
   function handleTreeSelect(node: ProjectTreeNode) {
     const nextPath = node.path || "project-root";
     setSelectedTreePath(nextPath);
 
     if (activeProjectId && isModelFilePath(nextPath)) {
       void openModel(activeProjectId, nextPath);
+    }
+  }
+
+  function handleCanvasDoubleClick(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!currentModel) {
       return;
     }
 
-    if (!isModelFilePath(nextPath)) {
-      setCurrentModel((existing) => {
-        if (existing && existing.path === nextPath) {
-          return null;
-        }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const nextPosition = {
+      x: clampPosition(event.clientX - bounds.left - NODE_WIDTH / 2, bounds.width, NODE_WIDTH),
+      y: clampPosition(event.clientY - bounds.top - NODE_HEIGHT / 2, bounds.height, NODE_HEIGHT)
+    };
 
-        return existing;
-      });
+    void handleCreateNode(nextPosition);
+  }
+
+  function handleCanvasClick() {
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setSelectedFrameId(null);
+  }
+
+  function handleNodePointerDown(event: ReactPointerEvent<HTMLButtonElement>, node: ModelNode) {
+    if (edgeCreationSourceId) {
+      return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+    setSelectedFrameId(null);
+    setDraggingNodeId(node.id);
+    dragStateRef.current = {
+      nodeId: node.id,
+      pointerOrigin: {
+        x: event.clientX,
+        y: event.clientY
+      },
+      startPosition: node.position,
+      nextPosition: node.position
+    };
+  }
+
+  function handleNodeClick(event: ReactMouseEvent<HTMLButtonElement>, node: ModelNode) {
+    event.stopPropagation();
+
+    if (edgeCreationSourceId) {
+      void handleCreateEdge(node.id);
+      return;
+    }
+
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+    setSelectedFrameId(null);
+  }
+
+  function handleEdgeClick(event: ReactMouseEvent<SVGLineElement>, edgeId: string) {
+    event.stopPropagation();
+    setSelectedEdgeId(edgeId);
+    setSelectedNodeId(null);
+    setSelectedFrameId(null);
+    setEdgeCreationSourceId(null);
+  }
+
+  function handleFrameClick(event: ReactMouseEvent<HTMLButtonElement>, frameId: string) {
+    event.stopPropagation();
+    setSelectedFrameId(frameId);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setEdgeCreationSourceId(null);
+  }
+
+  function beginEdgeCreation() {
+    if (!selectedNode) {
+      return;
+    }
+
+    setEdgeCreationSourceId((current) => (current === selectedNode.id ? null : selectedNode.id));
+    setSelectedEdgeId(null);
+    setSelectedFrameId(null);
+    setError(null);
+  }
+
+  function handleFrameMembershipToggle(nodeId: string, checked: boolean) {
+    setFrameNodeIdsDraft((current) => {
+      if (checked) {
+        return current.includes(nodeId) ? current : [...current, nodeId];
+      }
+
+      return current.filter((candidate) => candidate !== nodeId);
+    });
   }
 
   return (
     <div className="screen-shell">
       <section className="browser-panel">
-        <div className="eyebrow">M2-01 · Freeform bootstrap</div>
+        <div className="eyebrow">M2-04 | Frame containers</div>
         <h1>VisualExperiments</h1>
         <p className="lede">
-          Create a real project, open its workspace, and bootstrap the first freeform model directly from the
-          file tree.
+          Open freeform models, build node-and-edge graphs, and now group stable node ids inside semantic frames.
         </p>
 
         <form className="project-form" onSubmit={handleCreateProject}>
@@ -244,7 +686,7 @@ export function App() {
         {!loadingProjects && projects.length === 0 ? (
           <div className="empty-state">
             <h3>No projects yet</h3>
-            <p>Create the first one to bootstrap a folder with <code>project.yaml</code>, <code>models/</code>, and your first freeform model.</p>
+            <p>Create the first one to bootstrap a folder with <code>project.yaml</code>, <code>models/</code>, and a persistent freeform workspace.</p>
           </div>
         ) : null}
 
@@ -282,8 +724,8 @@ export function App() {
                 <div className="eyebrow">Project open</div>
                 <h2>{currentProject.name}</h2>
                 <p className="workspace-copy">
-                  Create a freeform model from the current directory context or open an existing YAML model from
-                  the tree. The center panel now acts as the empty canvas bootstrap.
+                  The canvas now supports the full freeform graph foundation: nodes, directed edges, and now frames as
+                  persisted semantic containers over stable node ids.
                 </p>
               </div>
               <div className="toolbar-actions">
@@ -303,7 +745,7 @@ export function App() {
                   <h3>Project tree</h3>
                 </div>
                 <p className="panel-copy">
-                  Create the next model in the selected folder context, or click an existing model YAML file to open it.
+                  Create the next model in the selected folder context, or open an existing YAML model to continue editing.
                 </p>
 
                 <form className="model-form" onSubmit={handleCreateModel}>
@@ -325,27 +767,45 @@ export function App() {
                 </form>
 
                 {projectTree ? (
-                  <TreeView
-                    node={projectTree}
-                    selectedPath={selectedTreePath}
-                    onSelectNode={handleTreeSelect}
-                  />
+                  <TreeView node={projectTree} selectedPath={selectedTreePath} onSelectNode={handleTreeSelect} />
                 ) : (
                   <p className="status">Loading tree...</p>
                 )}
               </section>
 
               <section className="shell-panel shell-panel-center">
-                <div className="panel-header">
-                  <span className="panel-kicker">Center panel</span>
-                  <h3>{currentModel ? "Empty freeform canvas" : "Canvas waiting for model"}</h3>
+                <div className="panel-header panel-header-row">
+                  <div>
+                    <span className="panel-kicker">Center panel</span>
+                    <h3>{currentModel ? "Freeform canvas" : "Canvas waiting for model"}</h3>
+                  </div>
+                  {currentModel ? (
+                    <div className="toolbar-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => void handleCreateNode()}
+                        disabled={mutatingNodeId === "creating-node"}
+                      >
+                        {mutatingNodeId === "creating-node" ? "Adding..." : "Add node"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => void handleCreateFrame()}
+                        disabled={mutatingFrameId === "creating-frame"}
+                      >
+                        {mutatingFrameId === "creating-frame" ? "Adding..." : "Add frame"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="placeholder-surface">
                   {!currentModel ? (
                     <>
                       <p>
-                        Create the first freeform model to bootstrap the editor. Once created, the model opens here
-                        with an intentionally empty canvas surface ready for node editing in `M2-02`.
+                        Create the first freeform model to bootstrap the editor. Once opened, double-clicking the canvas
+                        creates nodes, selecting a node unlocks edges, and frames can be created as semantic containers.
                       </p>
                       <div className="canvas-surface canvas-surface-empty">
                         <div className="canvas-badge">No model open</div>
@@ -354,19 +814,120 @@ export function App() {
                   ) : (
                     <>
                       <p>
-                        The model is now open with `notation: freeform` and explicit empty collections. This panel
-                        stays intentionally minimal until graph editing arrives in the next issue.
+                        Double-click to place nodes, drag cards to move them, then create outgoing edges or define frames
+                        that keep semantic membership on stable node ids.
                       </p>
                       <div className="selection-card">
                         <span className="selection-label">Opened model</span>
                         <strong>{currentModel.name}</strong>
                         <span className="selection-path">{currentModel.path}</span>
                       </div>
-                      <div className="canvas-surface">
-                        <div className="canvas-badge">notation: {currentModel.notation}</div>
-                        <div className="canvas-grid">
-                          <div className="canvas-node-placeholder">Empty canvas</div>
+                      {edgeCreationSourceId ? (
+                        <div className="edge-mode-banner">
+                          <span className="selection-label">Edge creation</span>
+                          <strong>Source: {lookupNodeLabel(currentModel, edgeCreationSourceId)}</strong>
+                          <p>Click another node on the canvas to create a directed edge, or press the button again to cancel.</p>
                         </div>
+                      ) : null}
+                      {selectedFrame ? (
+                        <div className="frame-mode-banner">
+                          <span className="selection-label">Frame selected</span>
+                          <strong>{selectedFrame.name}</strong>
+                          <p>Use the right panel to edit metadata and manage which node ids belong to this frame.</p>
+                        </div>
+                      ) : null}
+                      <div className="canvas-stage" onDoubleClick={handleCanvasDoubleClick} onClick={handleCanvasClick}>
+                        <div className="canvas-badge">notation: {currentModel.notation}</div>
+                        {currentModel.frames.map((frame, index) => {
+                          const bounds = getFrameBounds(frame, currentModel.nodes, index);
+                          const isSelected = selectedFrameId === frame.id;
+
+                          return (
+                            <button
+                              key={frame.id}
+                              type="button"
+                              className={`canvas-frame-card ${isSelected ? "canvas-frame-card-selected" : ""}`}
+                              style={{
+                                left: `${bounds.x}px`,
+                                top: `${bounds.y}px`,
+                                width: `${bounds.width}px`,
+                                height: `${bounds.height}px`
+                              }}
+                              onClick={(event) => handleFrameClick(event, frame.id)}
+                            >
+                              <span className="canvas-frame-title">{frame.name}</span>
+                              <span className="canvas-frame-copy">
+                                {frame.description || `${frame.nodeIds.length} node${frame.nodeIds.length === 1 ? "" : "s"} in frame`}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        <svg className="canvas-edge-layer" aria-hidden="true">
+                          <defs>
+                            <marker id="edge-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                              <path d="M0,0 L12,6 L0,12 z" fill="#7c8aa5" />
+                            </marker>
+                            <marker id="edge-arrow-active" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                              <path d="M0,0 L12,6 L0,12 z" fill="#2563eb" />
+                            </marker>
+                          </defs>
+                          {currentModel.edges.map((edge) => {
+                            const sourceNode = currentModel.nodes.find((node) => node.id === edge.source);
+                            const targetNode = currentModel.nodes.find((node) => node.id === edge.target);
+
+                            if (!sourceNode || !targetNode) {
+                              return null;
+                            }
+
+                            const sourcePoint = getNodeAnchor(sourceNode);
+                            const targetPoint = getNodeAnchor(targetNode);
+                            const isSelected = selectedEdgeId === edge.id;
+
+                            return (
+                              <g key={edge.id} className="canvas-edge-group">
+                                <line
+                                  className="canvas-edge-hit"
+                                  x1={sourcePoint.x}
+                                  y1={sourcePoint.y}
+                                  x2={targetPoint.x}
+                                  y2={targetPoint.y}
+                                  onClick={(event) => handleEdgeClick(event, edge.id)}
+                                />
+                                <line
+                                  className={`canvas-edge-path ${isSelected ? "canvas-edge-path-selected" : ""}`}
+                                  x1={sourcePoint.x}
+                                  y1={sourcePoint.y}
+                                  x2={targetPoint.x}
+                                  y2={targetPoint.y}
+                                  markerEnd={isSelected ? "url(#edge-arrow-active)" : "url(#edge-arrow)"}
+                                />
+                              </g>
+                            );
+                          })}
+                        </svg>
+                        {currentModel.nodes.length === 0 ? (
+                          <div className="canvas-node-placeholder">Double-click anywhere here to create the first node</div>
+                        ) : null}
+                        {currentModel.nodes.map((node) => (
+                          <button
+                            key={node.id}
+                            type="button"
+                            className={`canvas-node-card ${
+                              selectedNodeId === node.id ? "canvas-node-card-selected" : ""
+                            } ${draggingNodeId === node.id ? "canvas-node-card-dragging" : ""} ${
+                              edgeCreationSourceId === node.id ? "canvas-node-card-source" : ""
+                            }`}
+                            style={{
+                              transform: `translate(${node.position.x}px, ${node.position.y}px)`
+                            }}
+                            onClick={(event) => handleNodeClick(event, node)}
+                            onPointerDown={(event) => handleNodePointerDown(event, node)}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                          >
+                            <strong>{node.label}</strong>
+                            <span>{node.description || "No description yet"}</span>
+                          </button>
+                        ))}
                       </div>
                     </>
                   )}
@@ -376,10 +937,18 @@ export function App() {
               <section className="shell-panel">
                 <div className="panel-header">
                   <span className="panel-kicker">Right panel</span>
-                  <h3>{currentModel ? "Model properties" : "Project properties"}</h3>
+                  <h3>
+                    {!currentModel
+                      ? "Project properties"
+                      : selectedNode
+                        ? "Node properties"
+                        : selectedEdge
+                          ? "Edge properties"
+                          : "Model properties"}
+                  </h3>
                 </div>
                 <div className="properties-stack">
-                  {!currentModel ? (
+                    {!currentModel ? (
                     <>
                       <div className="property-card">
                         <span className="selection-label">Project root</span>
@@ -394,6 +963,145 @@ export function App() {
                         <strong>{formatSelectedPath(selectedTreePath)}</strong>
                       </div>
                     </>
+                  ) : selectedNode ? (
+                    <>
+                      <div className="property-card">
+                        <span className="selection-label">Node ID</span>
+                        <strong>{selectedNode.id}</strong>
+                      </div>
+                      <form className="node-form" onSubmit={handleSaveNodeDetails}>
+                        <label htmlFor="nodeLabel">Label</label>
+                        <input
+                          id="nodeLabel"
+                          name="nodeLabel"
+                          value={nodeLabelDraft}
+                          onChange={(event) => setNodeLabelDraft(event.target.value)}
+                          autoComplete="off"
+                        />
+                        <label htmlFor="nodeDescription">Description</label>
+                        <textarea
+                          id="nodeDescription"
+                          name="nodeDescription"
+                          value={nodeDescriptionDraft}
+                          onChange={(event) => setNodeDescriptionDraft(event.target.value)}
+                          rows={5}
+                        />
+                        <p className="form-hint">
+                          Position: {selectedNode.position.x}, {selectedNode.position.y}
+                        </p>
+                        <div className="property-actions">
+                          <button type="submit" disabled={mutatingNodeId === selectedNode.id}>
+                            {mutatingNodeId === selectedNode.id ? "Saving..." : "Save changes"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={beginEdgeCreation}
+                            disabled={mutatingEdgeId === "creating-edge"}
+                          >
+                            {edgeCreationSourceId === selectedNode.id ? "Cancel edge mode" : "Create outgoing edge"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => void handleDeleteSelectedNode()}
+                            disabled={mutatingNodeId === selectedNode.id}
+                          >
+                            Delete node
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                  ) : selectedFrame ? (
+                    <>
+                      <div className="property-card">
+                        <span className="selection-label">Frame ID</span>
+                        <strong>{selectedFrame.id}</strong>
+                      </div>
+                      <form className="node-form" onSubmit={handleSaveFrameDetails}>
+                        <label htmlFor="frameName">Frame name</label>
+                        <input
+                          id="frameName"
+                          name="frameName"
+                          value={frameNameDraft}
+                          onChange={(event) => setFrameNameDraft(event.target.value)}
+                          autoComplete="off"
+                        />
+                        <label htmlFor="frameDescription">Description</label>
+                        <textarea
+                          id="frameDescription"
+                          name="frameDescription"
+                          value={frameDescriptionDraft}
+                          onChange={(event) => setFrameDescriptionDraft(event.target.value)}
+                          rows={4}
+                        />
+                        <div className="membership-card">
+                          <span className="selection-label">Membership</span>
+                          {currentModel.nodes.length === 0 ? (
+                            <p className="status">Create nodes first to add them into a frame.</p>
+                          ) : (
+                            <div className="membership-list">
+                              {currentModel.nodes.map((node) => (
+                                <label key={node.id} className="membership-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={frameNodeIdsDraft.includes(node.id)}
+                                    onChange={(event) => handleFrameMembershipToggle(node.id, event.target.checked)}
+                                  />
+                                  <span>{node.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <p className="form-hint">stepUp remains null until M3.</p>
+                        <div className="property-actions">
+                          <button type="submit" disabled={mutatingFrameId === selectedFrame.id}>
+                            {mutatingFrameId === selectedFrame.id ? "Saving..." : "Save frame"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => void handleDeleteSelectedFrame()}
+                            disabled={mutatingFrameId === selectedFrame.id}
+                          >
+                            Delete frame
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                  ) : selectedEdge ? (
+                    <>
+                      <div className="property-card">
+                        <span className="selection-label">Edge ID</span>
+                        <strong>{selectedEdge.id}</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Direction</span>
+                        <strong>
+                          {lookupNodeLabel(currentModel, selectedEdge.source)}
+                          {" -> "}
+                          {lookupNodeLabel(currentModel, selectedEdge.target)}
+                        </strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Stable references</span>
+                        <strong>
+                          {selectedEdge.source}
+                          {" -> "}
+                          {selectedEdge.target}
+                        </strong>
+                      </div>
+                      <div className="property-actions">
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSelectedEdge()}
+                          disabled={mutatingEdgeId === selectedEdge.id}
+                        >
+                          {mutatingEdgeId === selectedEdge.id ? "Deleting..." : "Delete edge"}
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="property-card">
@@ -401,18 +1109,69 @@ export function App() {
                         <strong>{currentModel.id}</strong>
                       </div>
                       <div className="property-card">
-                        <span className="selection-label">Notation</span>
-                        <strong>{currentModel.notation}</strong>
-                      </div>
-                      <div className="property-card">
                         <span className="selection-label">Collections</span>
                         <strong>
-                          nodes {currentModel.nodes.length} · edges {currentModel.edges.length} · frames {currentModel.frames.length}
+                          nodes {currentModel.nodes.length} | edges {currentModel.edges.length} | frames {currentModel.frames.length}
                         </strong>
                       </div>
                       <div className="property-card">
                         <span className="selection-label">Model path</span>
                         <strong>{currentModel.path}</strong>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Edges</span>
+                        {currentModel.edges.length === 0 ? (
+                          <strong>No edges yet</strong>
+                        ) : (
+                          <ul className="edge-list">
+                            {currentModel.edges.map((edge) => (
+                              <li key={edge.id}>
+                                <button
+                                  type="button"
+                                  className={`edge-list-item ${selectedEdgeId === edge.id ? "edge-list-item-selected" : ""}`}
+                                  onClick={() => {
+                                    setSelectedEdgeId(edge.id);
+                                    setSelectedNodeId(null);
+                                    setEdgeCreationSourceId(null);
+                                  }}
+                                >
+                                  {lookupNodeLabel(currentModel, edge.source)}
+                                  {" -> "}
+                                  {lookupNodeLabel(currentModel, edge.target)}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Frames</span>
+                        {currentModel.frames.length === 0 ? (
+                          <strong>No frames yet</strong>
+                        ) : (
+                          <ul className="edge-list">
+                            {currentModel.frames.map((frame) => (
+                              <li key={frame.id}>
+                                <button
+                                  type="button"
+                                  className={`edge-list-item ${selectedFrameId === frame.id ? "edge-list-item-selected" : ""}`}
+                                  onClick={() => {
+                                    setSelectedFrameId(frame.id);
+                                    setSelectedNodeId(null);
+                                    setSelectedEdgeId(null);
+                                    setEdgeCreationSourceId(null);
+                                  }}
+                                >
+                                  {frame.name} ({frame.nodeIds.length})
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="empty-state compact-empty-state">
+                        <h3>No selection</h3>
+                        <p>Select a node, edge, or frame to inspect it. Frames group node ids semantically without deleting the nodes themselves.</p>
                       </div>
                     </>
                   )}
@@ -511,4 +1270,83 @@ function describeCreationTarget(path: string): string {
   }
 
   return formatSelectedPath(path);
+}
+
+function getDefaultNodePosition(index: number): ModelNodePosition {
+  const column = index % 3;
+  const row = Math.floor(index / 3);
+
+  return {
+    x: 32 + column * 196,
+    y: 72 + row * 132
+  };
+}
+
+function clampPosition(value: number, boundary: number, size: number): number {
+  const maxValue = Math.max(16, boundary - size - 16);
+  return roundCoordinate(Math.min(Math.max(16, value), maxValue));
+}
+
+function roundCoordinate(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function updateModelNodePosition(
+  model: ModelDetails | null,
+  nodeId: string,
+  position: ModelNodePosition
+): ModelDetails | null {
+  if (!model) {
+    return model;
+  }
+
+  return {
+    ...model,
+    nodes: model.nodes.map((node) =>
+      node.id === nodeId
+        ? {
+            ...node,
+            position
+          }
+        : node
+    )
+  };
+}
+
+function lookupNodeLabel(model: ModelDetails, nodeId: string): string {
+  return model.nodes.find((node) => node.id === nodeId)?.label ?? nodeId;
+}
+
+function getNodeAnchor(node: ModelNode): ModelNodePosition {
+  return {
+    x: node.position.x + NODE_WIDTH / 2,
+    y: node.position.y + NODE_HEIGHT / 2
+  };
+}
+
+function getFrameBounds(frame: ModelFrame, nodes: ModelNode[], index: number): FrameBounds {
+  const memberNodes = frame.nodeIds
+    .map((nodeId) => nodes.find((node) => node.id === nodeId))
+    .filter((node): node is ModelNode => Boolean(node));
+
+  if (memberNodes.length === 0) {
+    return {
+      x: 24 + index * 28,
+      y: 56 + index * 28,
+      width: 280,
+      height: 152
+    };
+  }
+
+  const minX = Math.min(...memberNodes.map((node) => node.position.x));
+  const minY = Math.min(...memberNodes.map((node) => node.position.y));
+  const maxX = Math.max(...memberNodes.map((node) => node.position.x + NODE_WIDTH));
+  const maxY = Math.max(...memberNodes.map((node) => node.position.y + NODE_HEIGHT));
+
+  return {
+    x: minX - 24,
+    y: minY - 56,
+    width: maxX - minX + 48,
+    height: maxY - minY + 80
+  };
 }

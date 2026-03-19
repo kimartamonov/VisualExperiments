@@ -10,9 +10,9 @@
     "prestart": "node scripts/build.mjs",
     "start": "node dist/server/index.js",
     "test": "node test/project-service.test.mjs",
-    "validate:m1": "node test/foundation-validation.mjs"
-    ,
-    "validate:m2": "node test/freeform-bootstrap-validation.mjs"
+    "validate:m1": "node test/foundation-validation.mjs",
+    "validate:m2": "node test/freeform-bootstrap-validation.mjs",
+    "validate:m3:spike": "node test/step-up-spike-validation.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

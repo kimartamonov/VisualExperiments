@@ -35,13 +35,44 @@ export interface ProjectTreeNode {
   children?: ProjectTreeNode[];
 }
 
+export interface ModelNodePosition {
+  x: number;
+  y: number;
+}
+
+export interface ModelNode {
+  id: string;
+  label: string;
+  description: string;
+  position: ModelNodePosition;
+}
+
+export interface ModelEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface StepUpLink {
+  model: string;
+  nodeId: string;
+}
+
+export interface ModelFrame {
+  id: string;
+  name: string;
+  description: string;
+  nodeIds: string[];
+  stepUp: StepUpLink | null;
+}
+
 export interface ModelDocument {
   id: string;
   name: string;
   notation: "freeform" | string;
-  nodes: unknown[];
-  edges: unknown[];
-  frames: unknown[];
+  nodes: ModelNode[];
+  edges: ModelEdge[];
+  frames: ModelFrame[];
 }
 
 export interface ModelDetails extends ModelDocument {
@@ -174,6 +205,243 @@ export class ProjectService {
     };
   }
 
+  async createNode(
+    projectId: string,
+    modelPath: string,
+    input: {
+      label?: string;
+      position: unknown;
+    }
+  ): Promise<{ model: ModelDetails; node: ModelNode }> {
+    const normalizedPosition = validateNodePosition(input.position);
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const node: ModelNode = {
+      id: `node-${randomUUID()}`,
+      label: normalizeNodeLabel(input.label, context.model.nodes.length + 1),
+      description: "",
+      position: normalizedPosition
+    };
+
+    context.model.nodes.push(node);
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      model: {
+        path: context.modelPath,
+        ...context.model
+      },
+      node
+    };
+  }
+
+  async updateNode(
+    projectId: string,
+    modelPath: string,
+    nodeId: string,
+    patch: {
+      label?: string;
+      description?: string;
+      position?: unknown;
+    }
+  ): Promise<ModelDetails> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const node = context.model.nodes.find((candidate) => candidate.id === nodeId);
+
+    if (!node) {
+      throw new NotFoundError(`Node "${nodeId}" was not found.`);
+    }
+
+    if (patch.label !== undefined) {
+      const nextLabel = patch.label.trim();
+
+      if (!nextLabel) {
+        throw new ValidationError("Node label is required.");
+      }
+
+      node.label = nextLabel;
+    }
+
+    if (patch.description !== undefined) {
+      node.description = patch.description.trim();
+    }
+
+    if (patch.position !== undefined) {
+      node.position = validateNodePosition(patch.position);
+    }
+
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      path: context.modelPath,
+      ...context.model
+    };
+  }
+
+  async deleteNode(projectId: string, modelPath: string, nodeId: string): Promise<ModelDetails> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const nextNodes = context.model.nodes.filter((node) => node.id !== nodeId);
+
+    if (nextNodes.length === context.model.nodes.length) {
+      throw new NotFoundError(`Node "${nodeId}" was not found.`);
+    }
+
+    context.model.nodes = nextNodes;
+    context.model.edges = context.model.edges.filter((edge) => !edgeReferencesNode(edge, nodeId));
+    context.model.frames = context.model.frames.map((frame) => removeNodeFromFrame(frame, nodeId));
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      path: context.modelPath,
+      ...context.model
+    };
+  }
+
+  async createEdge(
+    projectId: string,
+    modelPath: string,
+    input: {
+      source: string;
+      target: string;
+    }
+  ): Promise<{ model: ModelDetails; edge: ModelEdge }> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const source = normalizeEdgeNodeId(input.source, "source");
+    const target = normalizeEdgeNodeId(input.target, "target");
+
+    if (!context.model.nodes.some((node) => node.id === source)) {
+      throw new ValidationError(`Source node "${source}" does not exist.`);
+    }
+
+    if (!context.model.nodes.some((node) => node.id === target)) {
+      throw new ValidationError(`Target node "${target}" does not exist.`);
+    }
+
+    const edge: ModelEdge = {
+      id: `edge-${randomUUID()}`,
+      source,
+      target
+    };
+
+    context.model.edges.push(edge);
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      model: {
+        path: context.modelPath,
+        ...context.model
+      },
+      edge
+    };
+  }
+
+  async deleteEdge(projectId: string, modelPath: string, edgeId: string): Promise<ModelDetails> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const nextEdges = context.model.edges.filter((edge) => edge.id !== edgeId);
+
+    if (nextEdges.length === context.model.edges.length) {
+      throw new NotFoundError(`Edge "${edgeId}" was not found.`);
+    }
+
+    context.model.edges = nextEdges;
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      path: context.modelPath,
+      ...context.model
+    };
+  }
+
+  async createFrame(
+    projectId: string,
+    modelPath: string,
+    input?: {
+      name?: string;
+      description?: string;
+      nodeIds?: string[];
+    }
+  ): Promise<{ model: ModelDetails; frame: ModelFrame }> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const nodeIds = validateFrameNodeIds(input?.nodeIds, context.model.nodes);
+    const frame: ModelFrame = {
+      id: `frame-${randomUUID()}`,
+      name: normalizeFrameName(input?.name, context.model.frames.length + 1),
+      description: input?.description?.trim() ?? "",
+      nodeIds,
+      stepUp: null
+    };
+
+    context.model.frames.push(frame);
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      model: {
+        path: context.modelPath,
+        ...context.model
+      },
+      frame
+    };
+  }
+
+  async updateFrame(
+    projectId: string,
+    modelPath: string,
+    frameId: string,
+    patch: {
+      name?: string;
+      description?: string;
+      nodeIds?: unknown;
+    }
+  ): Promise<ModelDetails> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const frame = context.model.frames.find((candidate) => candidate.id === frameId);
+
+    if (!frame) {
+      throw new NotFoundError(`Frame "${frameId}" was not found.`);
+    }
+
+    if (patch.name !== undefined) {
+      const nextName = patch.name.trim();
+
+      if (!nextName) {
+        throw new ValidationError("Frame name is required.");
+      }
+
+      frame.name = nextName;
+    }
+
+    if (patch.description !== undefined) {
+      frame.description = patch.description.trim();
+    }
+
+    if (patch.nodeIds !== undefined) {
+      frame.nodeIds = validateFrameNodeIds(patch.nodeIds, context.model.nodes);
+    }
+
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      path: context.modelPath,
+      ...context.model
+    };
+  }
+
+  async deleteFrame(projectId: string, modelPath: string, frameId: string): Promise<ModelDetails> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const nextFrames = context.model.frames.filter((frame) => frame.id !== frameId);
+
+    if (nextFrames.length === context.model.frames.length) {
+      throw new NotFoundError(`Frame "${frameId}" was not found.`);
+    }
+
+    context.model.frames = nextFrames;
+    await this.persistModel(context.absolutePath, context.model);
+
+    return {
+      path: context.modelPath,
+      ...context.model
+    };
+  }
+
   private async readProjectRecords(): Promise<ProjectRecord[]> {
     await this.ensureProjectsRoot();
 
@@ -225,6 +493,30 @@ export class ProjectService {
       projectRoot,
       manifestAbsolutePath: path.join(projectRoot, "project.yaml")
     };
+  }
+
+  private async loadModelForMutation(
+    projectId: string,
+    requestedPath: string
+  ): Promise<{ projectRoot: string; absolutePath: string; modelPath: string; model: ModelDocument }> {
+    const { projectRoot } = await this.resolveProjectContext(projectId);
+    const modelPath = normalizeModelPath(requestedPath);
+    const absolutePath = resolveInsideRoot(projectRoot, modelPath);
+
+    if (!(await pathExists(absolutePath))) {
+      throw new NotFoundError(`Model "${modelPath}" was not found.`);
+    }
+
+    return {
+      projectRoot,
+      absolutePath,
+      modelPath,
+      model: await readModel(absolutePath)
+    };
+  }
+
+  private async persistModel(absolutePath: string, model: ModelDocument): Promise<void> {
+    await fs.writeFile(absolutePath, serializeYaml(model), "utf8");
   }
 
   private toSummary(record: ProjectRecord): ProjectSummary {
@@ -412,9 +704,74 @@ function isModelDocument(value: unknown): value is ModelDocument {
     typeof record.name === "string" &&
     typeof record.notation === "string" &&
     Array.isArray(record.nodes) &&
+    record.nodes.every(isModelNode) &&
     Array.isArray(record.edges) &&
-    Array.isArray(record.frames)
+    record.edges.every(isModelEdge) &&
+    Array.isArray(record.frames) &&
+    record.frames.every(isModelFrame)
   );
+}
+
+function isModelNode(value: unknown): value is ModelNode {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return (
+    typeof record.id === "string" &&
+    typeof record.label === "string" &&
+    typeof record.description === "string" &&
+    isModelNodePosition(record.position)
+  );
+}
+
+function isModelNodePosition(value: unknown): value is ModelNodePosition {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.x === "number" && Number.isFinite(record.x) && typeof record.y === "number" && Number.isFinite(record.y);
+}
+
+function isModelEdge(value: unknown): value is ModelEdge {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.id === "string" && typeof record.source === "string" && typeof record.target === "string";
+}
+
+function isModelFrame(value: unknown): value is ModelFrame {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return (
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.description === "string" &&
+    Array.isArray(record.nodeIds) &&
+    record.nodeIds.every((candidate) => typeof candidate === "string") &&
+    (record.stepUp === null || isStepUpLink(record.stepUp))
+  );
+}
+
+function isStepUpLink(value: unknown): value is StepUpLink {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.model === "string" && typeof record.nodeId === "string";
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -450,6 +807,16 @@ function normalizeRelativePath(value?: string | null): string | null {
   return value.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
+function normalizeModelPath(requestedPath: string): string {
+  const normalizedPath = normalizeRelativePath(requestedPath);
+
+  if (!normalizedPath || !normalizedPath.endsWith(".yaml") || normalizedPath === "project.yaml") {
+    throw new ValidationError("A valid model path is required.");
+  }
+
+  return normalizedPath;
+}
+
 function resolveInsideRoot(root: string, relativePath: string): string {
   const absoluteRoot = path.resolve(root);
   const absolutePath = path.resolve(root, relativePath);
@@ -468,4 +835,95 @@ function serializeYaml(document: object): string {
     sortKeys: false,
     lineWidth: -1
   }).trimEnd()}\n`;
+}
+
+function validateNodePosition(position: unknown): ModelNodePosition {
+  if (!isModelNodePosition(position)) {
+    throw new ValidationError("Node position must contain finite x and y coordinates.");
+  }
+
+  return {
+    x: roundCoordinate(position.x),
+    y: roundCoordinate(position.y)
+  };
+}
+
+function normalizeNodeLabel(rawLabel: string | undefined, fallbackIndex: number): string {
+  const nextLabel = rawLabel?.trim();
+
+  if (nextLabel) {
+    return nextLabel;
+  }
+
+  return `Node ${fallbackIndex}`;
+}
+
+function normalizeEdgeNodeId(value: string, role: "source" | "target"): string {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    throw new ValidationError(`Edge ${role} node is required.`);
+  }
+
+  return normalized;
+}
+
+function normalizeFrameName(rawName: string | undefined, fallbackIndex: number): string {
+  const nextName = rawName?.trim();
+
+  if (nextName) {
+    return nextName;
+  }
+
+  return `Frame ${fallbackIndex}`;
+}
+
+function roundCoordinate(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function edgeReferencesNode(edge: ModelEdge, nodeId: string): boolean {
+  return edge.source === nodeId || edge.target === nodeId;
+}
+
+function removeNodeFromFrame(frame: ModelFrame, nodeId: string): ModelFrame {
+  return {
+    ...frame,
+    nodeIds: frame.nodeIds.filter((candidate) => candidate !== nodeId)
+  };
+}
+
+function validateFrameNodeIds(value: unknown, nodes: ModelNode[]): string[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new ValidationError("Frame nodeIds must be an array.");
+  }
+
+  const knownNodeIds = new Set(nodes.map((node) => node.id));
+  const nextNodeIds: string[] = [];
+
+  for (const candidate of value) {
+    if (typeof candidate !== "string") {
+      throw new ValidationError("Frame nodeIds must contain only strings.");
+    }
+
+    const normalized = candidate.trim();
+
+    if (!normalized) {
+      throw new ValidationError("Frame nodeIds must not contain empty values.");
+    }
+
+    if (!knownNodeIds.has(normalized)) {
+      throw new ValidationError(`Frame node "${normalized}" does not exist.`);
+    }
+
+    if (!nextNodeIds.includes(normalized)) {
+      nextNodeIds.push(normalized);
+    }
+  }
+
+  return nextNodeIds;
 }

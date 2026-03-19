@@ -170,16 +170,52 @@ Project ──> Manifest
 | id | string | Стабильный id внутри модели |
 | name | string | Имя frame |
 | description | string (опционально) | Описание |
-| nodes | string[] | Список id нод, входящих во frame |
+| nodeIds | string[] | Список id нод, входящих во frame |
 | stepUp | StepUpLink \| null | Ссылка на верхнеуровневую модель и ноду |
 
 **Правила**:
 - При удалении frame ноды не удаляются, остаются на canvas.
 - Frame — промежуточная форма между группировкой и абстрагированием.
+- `stepUp` остается `null` до первого успешного step-up для frame.
+- Изменение `Frame.name`, `description` или `nodeIds` не обновляет upper-level representation автоматически в MVP.
 
 ---
 
-## 8. Drill-down Link
+## 8. Drill-down Link'@
+$domain = Replace-OrThrow -Content $domain -Pattern '(?s)## 9\. Step-up Link.*?## 10\. Model Reference' -Replacement @'
+## 9. Step-up Link
+
+**Смысл**: ссылка от frame к верхнеуровневой модели и ноде в ней, позволяющая подняться на уровень абстракции.
+
+**Структура**: хранится как объект `stepUp` в Frame.
+
+**Свойства**:
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| model | string (path) | Путь к верхнеуровневой модели |
+| nodeId | string | id ноды в верхнеуровневой модели, представляющей данный frame |
+
+**Правила**:
+- `model` хранится как путь относительно корня проекта.
+- Новый step-up target в MVP по умолчанию создается в `models/abstractions/`.
+- `Frame.name` может влиять на slug файла, но не определяет identity без `id`.
+- Первый успешный step-up записывает каноническую persistent link в `Frame.stepUp`.
+- Повторный обычный step-up открывает existing target по умолчанию и не создает silent duplicates.
+- Обновление upper-level representation выполняется только явной командой `regenerate/update`.
+- Автоматическая синхронизация и back-propagation из upper-level model в исходный frame не входят в MVP.
+
+---
+
+## 10. Model Reference'@
+$domain = Replace-OrThrow -Content $domain -Pattern '(?s)## Особенности предметной модели MVP.*\z' -Replacement @'
+## Особенности предметной модели MVP
+
+- Freeform и typed-модели хранятся в одном формате. Различие — только значение поля `notation`.
+- Нотация — это не метамодель в полном смысле, а минимальный набор типов с цветами.
+- Frame — не обычный typed-объект, а особый контейнер со смысловой связью step-up.
+- Step-up link фиксирует навигационную и representational связь, но не вводит live sync между моделями в MVP.
+- В MVP нет сквозных инстансов объектов между моделями — каждая модель содержит свои ноды.
 
 **Смысл**: ссылка от ноды к дочерней модели, позволяющая раскрыть объект в более детальное представление.
 

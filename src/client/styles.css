@@ -21,7 +21,8 @@ code {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -109,11 +110,21 @@ h1 {
 }
 
 input {
+  width: 100%;
   flex: 1;
   border: 1px solid rgba(82, 96, 109, 0.2);
   border-radius: 14px;
   padding: 12px 14px;
   background: #ffffff;
+}
+
+textarea {
+  width: 100%;
+  border: 1px solid rgba(82, 96, 109, 0.2);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #ffffff;
+  resize: vertical;
 }
 
 button {
@@ -248,6 +259,13 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+.panel-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .panel-kicker,
 .selection-label {
   display: block;
@@ -362,6 +380,50 @@ button:disabled {
   border: 1px solid rgba(31, 41, 51, 0.08);
 }
 
+.canvas-stage {
+  position: relative;
+  min-height: 360px;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 20px;
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)),
+    linear-gradient(90deg, rgba(143, 160, 182, 0.12) 1px, transparent 1px),
+    linear-gradient(rgba(143, 160, 182, 0.12) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.canvas-edge-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+.canvas-edge-group {
+  cursor: pointer;
+}
+
+.canvas-edge-hit {
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+}
+
+.canvas-edge-path {
+  stroke: #7c8aa5;
+  stroke-width: 3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.canvas-edge-path-selected {
+  stroke: #2563eb;
+  stroke-width: 3.5;
+}
+
 .canvas-surface-empty {
   display: flex;
   align-items: center;
@@ -387,12 +449,203 @@ button:disabled {
 }
 
 .canvas-node-placeholder {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
   padding: 18px 26px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.94);
   border: 1px dashed rgba(82, 96, 109, 0.34);
   color: #52606d;
   font-weight: 600;
+  text-align: center;
+}
+
+.canvas-node-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 176px;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(31, 41, 51, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+  color: #102a43;
+  text-align: left;
+  cursor: grab;
+}
+
+.canvas-node-card strong {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.canvas-node-card span {
+  color: #52606d;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.canvas-node-card-selected {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.14);
+}
+
+.canvas-node-card-source {
+  border-color: rgba(13, 148, 136, 0.45);
+  box-shadow: 0 18px 40px rgba(13, 148, 136, 0.14);
+}
+
+.canvas-node-card-dragging {
+  cursor: grabbing;
+}
+
+.edge-mode-banner {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(236, 253, 245, 0.94);
+  border: 1px solid rgba(13, 148, 136, 0.18);
+}
+
+.edge-mode-banner p {
+  margin-bottom: 0;
+}
+
+.frame-mode-banner {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 247, 237, 0.94);
+  border: 1px solid rgba(234, 88, 12, 0.16);
+}
+
+.frame-mode-banner p {
+  margin-bottom: 0;
+}
+
+.canvas-frame-card {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 18px 18px 14px;
+  border-radius: 24px;
+  border: 2px dashed rgba(234, 88, 12, 0.35);
+  background: rgba(255, 247, 237, 0.42);
+  color: #9a3412;
+  text-align: left;
+}
+
+.canvas-frame-card:hover:not(:disabled) {
+  transform: none;
+  background: rgba(255, 247, 237, 0.56);
+}
+
+.canvas-frame-card-selected {
+  border-color: rgba(194, 65, 12, 0.56);
+  background: rgba(255, 237, 213, 0.72);
+}
+
+.canvas-frame-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.canvas-frame-copy {
+  color: #9a3412;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.node-form {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(246, 249, 252, 0.92);
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.node-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #243b53;
+}
+
+.node-form input + label,
+.node-form textarea + .form-hint,
+.node-form label + textarea {
+  margin-top: 12px;
+}
+
+.property-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.edge-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.edge-list li + li {
+  margin-top: 8px;
+}
+
+.edge-list-item {
+  width: 100%;
+  justify-content: flex-start;
+  background: rgba(238, 242, 247, 0.9);
+  color: #334e68;
+  text-align: left;
+}
+
+.edge-list-item-selected {
+  background: #dbeafe;
+  color: #102a43;
+}
+
+.membership-card {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.membership-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.membership-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #243b53;
+}
+
+.membership-item input {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.compact-empty-state {
+  padding: 16px;
 }
 
 .structure-list li + li {
@@ -415,7 +668,9 @@ button:disabled {
   }
 
   .workspace-toolbar,
-  .toolbar-actions {
+  .toolbar-actions,
+  .panel-header-row,
+  .property-actions {
     flex-direction: column;
   }
 }

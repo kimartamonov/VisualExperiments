@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M2-02`
-- Title: `Create and persist nodes in freeform models`
+- Issue ID: `M3-02`
+- Title: `Spike one-shot/manual regeneration approach for cross-model navigation`
 - Status: `Current`
-- Milestone: `M2. Freeform Modeling Workspace`
-- Issue File: `Issue-Tree/M2_Freeform_Modeling_Workspace/M2-02_Create_And_Persist_Nodes_In_Freeform_Models.md`
-- Milestone README: `Issue-Tree/M2_Freeform_Modeling_Workspace/README.md`
-- Depends On: `M2-01`
-- Next Issue On Success: `M2-03`
+- Milestone: `M3. Hierarchy and Semantic Navigation`
+- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-02_Spike_OneShot_Manual_Regeneration_Approach.md`
+- Milestone README: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/README.md`
+- Depends On: `M3-01`
+- Next Issue On Success: `M3-03`
 - Blockers: `None`
 
 ---
@@ -51,13 +51,13 @@
 | 4 | M1-04 | M1 | Done | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation pass completed; no critical/high findings observed |
 | 5 | M1-05 | M1 | Done | `IssueReport/M1-05_Implementation_Report.md` | `IssueReport/M1-05_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no foundation fixes were required |
 | 6 | M2-01 | M2 | Done | `IssueReport/M2-01_Implementation_Report.md` | `IssueReport/M2-01_Technical_Documentation.md` | Freeform model create/open flow and empty canvas bootstrap are now stable |
-| 7 | M2-02 | M2 | Current | - | - | Node editing |
-| 8 | M2-03 | M2 | Pending | - | - | Edge editing |
-| 9 | M2-04 | M2 | Pending | - | - | Frame semantic container |
-| 10 | M2-05 | M2 | Pending | - | - | Freeform validation |
-| 11 | M2-06 | M2 | Pending | - | - | Freeform blocker fixes |
-| 12 | M3-01 | M3 | Pending | - | - | Step-up decision |
-| 13 | M3-02 | M3 | Pending | - | - | Step-up spike |
+| 7 | M2-02 | M2 | Done | `IssueReport/M2-02_Implementation_Report.md` | `IssueReport/M2-02_Technical_Documentation.md` | Node lifecycle now works through canvas UI and YAML persistence |
+| 8 | M2-03 | M2 | Done | `IssueReport/M2-03_Implementation_Report.md` | `IssueReport/M2-03_Technical_Documentation.md` | Directed edge create/delete and canvas arrow rendering are now stable |
+| 9 | M2-04 | M2 | Done | `IssueReport/M2-04_Implementation_Report.md` | `IssueReport/M2-04_Technical_Documentation.md` | Frame semantic containers and membership persistence are now stable |
+| 10 | M2-05 | M2 | Done | `IssueReport/M2-05_Implementation_Report.md` | `IssueReport/M2-05_Technical_Documentation.md` | Freeform validation passed; blocker-list is empty |
+| 11 | M2-06 | M2 | Done | `IssueReport/M2-06_Implementation_Report.md` | `IssueReport/M2-06_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no freeform fixes were required |
+| 12 | M3-01 | M3 | Done | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Step-up synchronization semantics fixed for MVP; no live sync and explicit manual regenerate contract accepted |
+| 13 | M3-02 | M3 | Current | - | - | Step-up spike |
 | 14 | M3-03 | M3 | Pending | - | - | Breadcrumbs and back |
 | 15 | M3-04 | M3 | Pending | - | - | Drill-down implementation |
 | 16 | M3-05 | M3 | Pending | - | - | Step-up implementation |
@@ -87,13 +87,19 @@
 | 2026-03-18 | M1-04 | M1 | `IssueReport/M1-04_Implementation_Report.md` | `IssueReport/M1-04_Technical_Documentation.md` | Validation passed for steps 1-2 and AC-1/AC-2; no critical/high blockers were found |
 | 2026-03-18 | M1-05 | M1 | `IssueReport/M1-05_Implementation_Report.md` | `IssueReport/M1-05_Technical_Documentation.md` | Bugfix gate confirmed no blocker fixes were needed and unlocked M2-01 |
 | 2026-03-18 | M2-01 | M2 | `IssueReport/M2-01_Implementation_Report.md` | `IssueReport/M2-01_Technical_Documentation.md` | Implemented freeform model create/open lifecycle, defaultModel update, and empty canvas bootstrap |
+| 2026-03-18 | M2-02 | M2 | `IssueReport/M2-02_Implementation_Report.md` | `IssueReport/M2-02_Technical_Documentation.md` | Implemented persisted node create/move/edit/delete flow and unlocked edge and frame slices |
+| 2026-03-18 | M2-03 | М2 | `IssueReport/M2-03_Implementation_Report.md` | `IssueReport/M2-03_Technical_Documentation.md` | Implemented directed edge create/delete flow, YAML persistence, and canvas arrow rendering |
+| 2026-03-18 | M2-04 | M2 | `IssueReport/M2-04_Implementation_Report.md` | `IssueReport/M2-04_Technical_Documentation.md` | Implemented frames as semantic containers with persisted membership, metadata, and safe deletion |
+| 2026-03-18 | M2-05 | M2 | `IssueReport/M2-05_Implementation_Report.md` | `IssueReport/M2-05_Technical_Documentation.md` | Validation passed for AC-3..AC-6 and demo steps 3-5; no critical/high blockers were found |
+| 2026-03-18 | M2-06 | M2 | `IssueReport/M2-06_Implementation_Report.md` | `IssueReport/M2-06_Technical_Documentation.md` | Bugfix gate confirmed no blocker fixes were needed and unlocked M3-01 |
+| 2026-03-18 | M3-01 | M3 | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Closed DB-17 for MVP: first step-up creates canonical link, repeats reuse existing target, and regeneration stays explicit |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M2-01` on `2026-03-18`.
-- Freeform model create/open lifecycle now works through backend YAML persistence and workspace UI.
-- The first model can populate `defaultModel`, new model files appear in tree, and reopen preserves the empty freeform model.
-- Next issue to execute is `M2-02`.
-- Execution may continue without additional decisions; the next gap is node editing inside the now-open freeform model.
+- Completed `M3-01` on `2026-03-18`.
+- Fixed `DB-17` for MVP: first step-up creates and persists the canonical `frame.stepUp` link, repeated default step-up reuses the existing target, and upper-level refresh remains an explicit manual action.
+- Live sync and automatic back-propagation were explicitly kept out of MVP scope.
+- Source-of-truth docs and downstream issue specs are aligned with the accepted contract.
+- Next issue to execute is `M3-02`.

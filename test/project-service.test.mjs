@@ -117,13 +117,267 @@ async function testOpenModelAndSecondaryPlacement() {
   assert.equal(reopened.notation, "freeform");
 }
 
+async function testNodeLifecycleAndPersistence() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Node Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const modelAbsolutePath = path.join(projectsRoot, created.folderName, model.path);
+
+  const createdNode = await service.createNode(created.id, model.path, {
+    position: { x: 48, y: 96 }
+  });
+  const updatedModel = await service.updateNode(created.id, model.path, createdNode.node.id, {
+    label: "Capability",
+    description: "Reusable business capability",
+    position: { x: 224, y: 182 }
+  });
+  const reopened = await service.getModel(created.id, model.path);
+  const deletedModel = await service.deleteNode(created.id, model.path, createdNode.node.id);
+  const modelText = await readFile(modelAbsolutePath, "utf8");
+
+  assert.equal(createdNode.node.label, "Node 1");
+  assert.equal(createdNode.model.nodes.length, 1);
+  assert.equal(updatedModel.nodes[0]?.label, "Capability");
+  assert.equal(updatedModel.nodes[0]?.description, "Reusable business capability");
+  assert.deepEqual(updatedModel.nodes[0]?.position, { x: 224, y: 182 });
+  assert.deepEqual(reopened.nodes[0], updatedModel.nodes[0]);
+  assert.deepEqual(deletedModel.nodes, []);
+  assert.match(modelText, /^nodes: \[\]$/m);
+}
+
+async function testDeleteNodeCleansDanglingReferences() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Cleanup Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const modelAbsolutePath = path.join(projectsRoot, created.folderName, model.path);
+
+  await writeFile(
+    modelAbsolutePath,
+    [
+      "id: model-cleanup",
+      "name: Main Map",
+      "notation: freeform",
+      "nodes:",
+      "  - id: node-a",
+      "    label: Alpha",
+      "    description: First",
+      "    position:",
+      "      x: 40",
+      "      y: 80",
+      "  - id: node-b",
+      "    label: Beta",
+      "    description: Second",
+      "    position:",
+      "      x: 280",
+      "      y: 120",
+      "edges:",
+      "  - id: edge-a",
+      "    source: node-a",
+      "    target: node-b",
+      "  - id: edge-b",
+      "    source: node-b",
+      "    target: node-b",
+      "frames:",
+      "  - id: frame-a",
+      "    name: Focus",
+      "    description: Cleanup group",
+      "    nodeIds:",
+      "      - node-a",
+      "      - node-b",
+      "    stepUp: null",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const updatedModel = await service.deleteNode(created.id, model.path, "node-a");
+  const reopened = await service.getModel(created.id, model.path);
+
+  assert.equal(updatedModel.nodes.length, 1);
+  assert.equal(updatedModel.nodes[0]?.id, "node-b");
+  assert.equal(updatedModel.edges.length, 1);
+  assert.equal(updatedModel.edges[0]?.id, "edge-b");
+  assert.deepEqual(updatedModel.frames[0]?.nodeIds, ["node-b"]);
+  assert.deepEqual(reopened, updatedModel);
+}
+
+async function testEdgeLifecycleAndPersistence() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Edge Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const firstNode = await service.createNode(created.id, model.path, {
+    position: { x: 48, y: 96 }
+  });
+  const secondNode = await service.createNode(created.id, model.path, {
+    position: { x: 260, y: 160 }
+  });
+
+  const createdEdge = await service.createEdge(created.id, model.path, {
+    source: firstNode.node.id,
+    target: secondNode.node.id
+  });
+  const reopened = await service.getModel(created.id, model.path);
+  const afterDelete = await service.deleteEdge(created.id, model.path, createdEdge.edge.id);
+
+  assert.equal(createdEdge.model.edges.length, 1);
+  assert.equal(createdEdge.edge.source, firstNode.node.id);
+  assert.equal(createdEdge.edge.target, secondNode.node.id);
+  assert.deepEqual(reopened.edges[0], createdEdge.edge);
+  assert.deepEqual(afterDelete.edges, []);
+}
+
+async function testCreateEdgeRejectsMissingNodes() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Edge Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const firstNode = await service.createNode(created.id, model.path, {
+    position: { x: 48, y: 96 }
+  });
+
+  await assert.rejects(
+    () =>
+      service.createEdge(created.id, model.path, {
+        source: firstNode.node.id,
+        target: "node-missing"
+      }),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /target node/i);
+      return true;
+    }
+  );
+}
+
+async function testFrameLifecycleAndPersistence() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Frame Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const firstNode = await service.createNode(created.id, model.path, {
+    position: { x: 48, y: 96 }
+  });
+  const secondNode = await service.createNode(created.id, model.path, {
+    position: { x: 260, y: 160 }
+  });
+
+  const createdFrame = await service.createFrame(created.id, model.path);
+  const updatedModel = await service.updateFrame(created.id, model.path, createdFrame.frame.id, {
+    name: "Customer Context",
+    description: "Actors grouped for later step-up",
+    nodeIds: [firstNode.node.id, secondNode.node.id]
+  });
+  const reopened = await service.getModel(created.id, model.path);
+  const afterDelete = await service.deleteFrame(created.id, model.path, createdFrame.frame.id);
+
+  assert.equal(createdFrame.frame.name, "Frame 1");
+  assert.equal(createdFrame.frame.stepUp, null);
+  assert.equal(updatedModel.frames[0]?.name, "Customer Context");
+  assert.equal(updatedModel.frames[0]?.description, "Actors grouped for later step-up");
+  assert.deepEqual(updatedModel.frames[0]?.nodeIds, [firstNode.node.id, secondNode.node.id]);
+  assert.equal(updatedModel.frames[0]?.stepUp, null);
+  assert.deepEqual(reopened.frames[0], updatedModel.frames[0]);
+  assert.deepEqual(afterDelete.frames, []);
+  assert.equal(afterDelete.nodes.length, 2);
+}
+
+async function testDeleteNodeCleansFrameMembershipOnly() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Frame Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const firstNode = await service.createNode(created.id, model.path, {
+    position: { x: 48, y: 96 }
+  });
+  const secondNode = await service.createNode(created.id, model.path, {
+    position: { x: 260, y: 160 }
+  });
+  const frame = await service.createFrame(created.id, model.path, {
+    nodeIds: [firstNode.node.id, secondNode.node.id]
+  });
+
+  const updatedModel = await service.deleteNode(created.id, model.path, firstNode.node.id);
+
+  assert.equal(updatedModel.frames.length, 1);
+  assert.deepEqual(updatedModel.frames[0]?.nodeIds, [secondNode.node.id]);
+  assert.equal(updatedModel.frames[0]?.id, frame.frame.id);
+}
+
+async function testFrameStepUpLinkPersistsAcrossMembershipEdits() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Step Up Contract");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const modelAbsolutePath = path.join(projectsRoot, created.folderName, model.path);
+
+  await writeFile(
+    modelAbsolutePath,
+    [
+      "id: model-step-up",
+      "name: Main Map",
+      "notation: freeform",
+      "nodes:",
+      "  - id: node-a",
+      "    label: Alpha",
+      "    description: First",
+      "    position:",
+      "      x: 40",
+      "      y: 80",
+      "  - id: node-b",
+      "    label: Beta",
+      "    description: Second",
+      "    position:",
+      "      x: 280",
+      "      y: 120",
+      "edges: []",
+      "frames:",
+      "  - id: frame-a",
+      "    name: Context",
+      "    description: Step-up source",
+      "    nodeIds:",
+      "      - node-a",
+      "      - node-b",
+      "    stepUp:",
+      "      model: models/abstractions/context.yaml",
+      "      nodeId: node-upper",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const reopened = await service.getModel(created.id, model.path);
+  const updated = await service.updateFrame(created.id, model.path, "frame-a", {
+    name: "Context Updated",
+    nodeIds: ["node-a"]
+  });
+  const afterDelete = await service.deleteNode(created.id, model.path, "node-a");
+
+  assert.deepEqual(reopened.frames[0]?.stepUp, {
+    model: "models/abstractions/context.yaml",
+    nodeId: "node-upper"
+  });
+  assert.deepEqual(updated.frames[0]?.stepUp, reopened.frames[0]?.stepUp);
+  assert.deepEqual(afterDelete.frames[0]?.stepUp, reopened.frames[0]?.stepUp);
+  assert.deepEqual(afterDelete.frames[0]?.nodeIds, []);
+}
+
 const cases = [
   ["createProject bootstraps a project folder with manifest and models directory", testCreateProjectBootstrap],
   ["listProjects and getProject read the manifest back from disk", testListAndReopen],
   ["createProject rejects conflicting folder slugs with a readable error", testConflictHandling],
   ["getProjectTree reflects real folders and YAML files after the project changes", testProjectTreeAndRefresh],
   ["createFreeformModel persists an empty freeform model and updates defaultModel", testCreateFreeformModelAndDefaultModel],
-  ["getModel reopens persisted freeform models and secondary placement stays stable", testOpenModelAndSecondaryPlacement]
+  ["getModel reopens persisted freeform models and secondary placement stays stable", testOpenModelAndSecondaryPlacement],
+  ["create/update/delete node operations persist freeform node state", testNodeLifecycleAndPersistence],
+  ["deleteNode cleans dangling edge and frame references", testDeleteNodeCleansDanglingReferences],
+  ["create/delete edge operations persist source and target ids", testEdgeLifecycleAndPersistence],
+  ["createEdge rejects references to missing nodes", testCreateEdgeRejectsMissingNodes],
+  ["create/update/delete frame operations persist metadata and membership", testFrameLifecycleAndPersistence],
+  ["deleteNode removes node ids from frames without deleting the frame", testDeleteNodeCleansFrameMembershipOnly],
+  ["existing frame stepUp links survive frame edits and membership cleanup", testFrameStepUpLinkPersistsAcrossMembershipEdits]
 ];
 
 for (const [name, run] of cases) {
