@@ -30,6 +30,7 @@ export interface ModelNode {
   label: string;
   description: string;
   position: ModelNodePosition;
+  drilldowns: string[];
 }
 
 export interface ModelEdge {
@@ -42,6 +43,8 @@ export interface StepUpLink {
   model: string;
   nodeId: string;
 }
+
+export type FrameStepUpMode = "default" | "regenerate";
 
 export interface ModelFrame {
   id: string;
@@ -59,6 +62,14 @@ export interface ModelDetails {
   nodes: ModelNode[];
   edges: ModelEdge[];
   frames: ModelFrame[];
+}
+
+export interface FrameStepUpResult {
+  sourceModel: ModelDetails;
+  upperModel: ModelDetails;
+  link: StepUpLink;
+  created: boolean;
+  regenerated: boolean;
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {
@@ -126,7 +137,7 @@ export async function updateNode(
   projectId: string,
   modelPath: string,
   nodeId: string,
-  patch: Partial<Pick<ModelNode, "label" | "description" | "position">>
+  patch: Partial<Pick<ModelNode, "label" | "description" | "position" | "drilldowns">>
 ): Promise<ModelDetails> {
   const response = await fetch(`/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}`, {
     method: "PATCH",
@@ -220,6 +231,23 @@ export async function deleteFrame(projectId: string, modelPath: string, frameId:
   );
 
   return parseResponse<{ model: ModelDetails }>(response).then((payload) => payload.model);
+}
+
+export async function stepUpFrame(
+  projectId: string,
+  modelPath: string,
+  frameId: string,
+  mode: FrameStepUpMode = "default"
+): Promise<FrameStepUpResult> {
+  const response = await fetch(`/api/projects/${projectId}/frames/${encodeURIComponent(frameId)}/step-up`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ modelPath, mode })
+  });
+
+  return parseResponse<FrameStepUpResult>(response);
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {

@@ -9,6 +9,7 @@ import {
   deleteEdge,
   deleteFrame,
   deleteNode,
+  FrameStepUpMode,
   getModel,
   getProject,
   getProjectTree,
@@ -20,6 +21,7 @@ import {
   ProjectDetails,
   ProjectSummary,
   ProjectTreeNode,
+  stepUpFrame,
   updateFrame,
   updateNode
 } from "./api";
@@ -58,6 +60,16 @@ interface OpenModelOptions {
   failureLabel?: string;
 }
 
+interface DrilldownRecoveryState {
+  nodeId: string;
+  targetPath: string;
+}
+
+interface StepUpRecoveryState {
+  frameId: string;
+  targetPath: string;
+}
+
 const NODE_WIDTH = 176;
 const NODE_HEIGHT = 104;
 
@@ -90,6 +102,7 @@ export function App() {
   const [frameNameDraft, setFrameNameDraft] = useState("");
   const [frameDescriptionDraft, setFrameDescriptionDraft] = useState("");
   const [frameNodeIdsDraft, setFrameNodeIdsDraft] = useState<string[]>([]);
+  const [existingDrilldownTargetPath, setExistingDrilldownTargetPath] = useState("");
   const [projectName, setProjectName] = useState("");
   const [modelName, setModelName] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -101,7 +114,10 @@ export function App() {
   const [mutatingNodeId, setMutatingNodeId] = useState<string | null>(null);
   const [mutatingEdgeId, setMutatingEdgeId] = useState<string | null>(null);
   const [mutatingFrameId, setMutatingFrameId] = useState<string | null>(null);
+  const [mutatingDrilldownNodeId, setMutatingDrilldownNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [drilldownRecovery, setDrilldownRecovery] = useState<DrilldownRecoveryState | null>(null);
+  const [stepUpRecovery, setStepUpRecovery] = useState<StepUpRecoveryState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => readProjectIdFromLocation());
   const activeProjectIdRef = useRef<string | null>(activeProjectId);
@@ -111,8 +127,24 @@ export function App() {
   const selectedNode = currentModel?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge = currentModel?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedFrame = currentModel?.frames.find((frame) => frame.id === selectedFrameId) ?? null;
+  const availableDrilldownTargets =
+    currentModel && projectTree
+      ? collectModelPaths(projectTree).filter(
+          (candidate) => candidate !== currentModel.path && !(selectedNode?.drilldowns ?? []).includes(candidate)
+        )
+      : [];
   const navigationBreadcrumbs = getNavigationBreadcrumbs(navigationState);
   const canGoBack = canNavigateBack(navigationState);
+  const selectedNodeMissingDrilldown =
+    selectedNode?.drilldowns.find((candidate) => !projectTree || !treeContainsPath(projectTree, candidate)) ?? null;
+  const selectedNodeRecoveryTarget =
+    drilldownRecovery?.nodeId === selectedNode?.id ? drilldownRecovery?.targetPath ?? null : selectedNodeMissingDrilldown;
+  const selectedFrameMissingStepUp =
+    selectedFrame?.stepUp && (!projectTree || !treeContainsPath(projectTree, selectedFrame.stepUp.model))
+      ? selectedFrame.stepUp.model
+      : null;
+  const selectedFrameRecoveryTarget =
+    stepUpRecovery?.frameId === selectedFrame?.id ? stepUpRecovery?.targetPath ?? null : selectedFrameMissingStepUp;
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
@@ -188,6 +220,30 @@ export function App() {
   }, [selectedFrame?.id, selectedFrame?.name, selectedFrame?.description, selectedFrame?.nodeIds]);
 
   useEffect(() => {
+    setDrilldownRecovery((current) => (current && current.nodeId === selectedNode?.id ? current : null));
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+    setStepUpRecovery((current) => (current && current.frameId === selectedFrame?.id ? current : null));
+  }, [selectedFrame?.id]);
+
+  useEffect(() => {
+    if (!selectedNode) {
+      setExistingDrilldownTargetPath("");
+      return;
+    }
+
+    if (
+      existingDrilldownTargetPath &&
+      availableDrilldownTargets.includes(existingDrilldownTargetPath)
+    ) {
+      return;
+    }
+
+    setExistingDrilldownTargetPath(availableDrilldownTargets[0] ?? "");
+  }, [selectedNode?.id, existingDrilldownTargetPath, availableDrilldownTargets]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = dragStateRef.current;
 
@@ -261,6 +317,9 @@ export function App() {
     setSelectedEdgeId(null);
     setSelectedFrameId(null);
     setEdgeCreationSourceId(null);
+    setExistingDrilldownTargetPath("");
+    setDrilldownRecovery(null);
+    setStepUpRecovery(null);
   }
 
   async function openProject(projectId: string) {
@@ -587,7 +646,7 @@ export function App() {
 
   async function persistNodePatch(
     nodeId: string,
-    patch: Partial<Pick<ModelNode, "label" | "description" | "position">>,
+    patch: Partial<Pick<ModelNode, "label" | "description" | "position" | "drilldowns">>,
     shouldRecoverOnError = false
   ) {
     const projectId = activeProjectIdRef.current;
@@ -631,6 +690,175 @@ export function App() {
         failureLabel: `model ${formatSelectedPath(nextPath)}`
       });
     }
+  }
+
+  async function handleCreateDrilldownModel(replacePath?: string) {
+    if (!activeProjectId || !currentModel || !selectedNode) {
+      return;
+    }
+
+    setMutatingDrilldownNodeId(selectedNode.id);
+
+    try {
+      const childModel = await createModel(
+        activeProjectId,
+        buildDrilldownModelName(selectedNode.label),
+        currentModel.path
+      );
+      const updatedModel = await updateNode(activeProjectId, currentModel.path, selectedNode.id, {
+        drilldowns: mergeDrilldownPaths(selectedNode.drilldowns, childModel.path, replacePath)
+      });
+
+      setCurrentModel(updatedModel);
+      setDrilldownRecovery(null);
+      await Promise.all([refreshTree(childModel.path), loadProjects()]);
+      await openModel(activeProjectId, childModel.path, {
+        navigationMode: "push",
+        failureMode: "keep-current",
+        pruneFailedTarget: false,
+        failureLabel: `drill-down ${formatSelectedPath(childModel.path)}`
+      });
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingDrilldownNodeId(null);
+    }
+  }
+
+  async function handleLinkExistingDrilldown(replacePath?: string) {
+    if (!activeProjectId || !currentModel || !selectedNode) {
+      return;
+    }
+
+    const targetPath = replacePath ?? existingDrilldownTargetPath;
+
+    if (!targetPath) {
+      setError("Choose an existing model to link as a drill-down target.");
+      return;
+    }
+
+    setMutatingDrilldownNodeId(selectedNode.id);
+
+    try {
+      const updatedModel = await updateNode(activeProjectId, currentModel.path, selectedNode.id, {
+        drilldowns: mergeDrilldownPaths(selectedNode.drilldowns, targetPath, replacePath)
+      });
+
+      setCurrentModel(updatedModel);
+      setDrilldownRecovery(null);
+      const opened = await openModel(activeProjectId, targetPath, {
+        navigationMode: "push",
+        failureMode: "keep-current",
+        pruneFailedTarget: false,
+        failureLabel: `drill-down ${formatSelectedPath(targetPath)}`
+      });
+
+      if (!opened) {
+        setDrilldownRecovery({
+          nodeId: selectedNode.id,
+          targetPath
+        });
+      } else {
+        setError(null);
+      }
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingDrilldownNodeId(null);
+    }
+  }
+
+  async function handleOpenDrilldown(targetPath: string) {
+    if (!activeProjectId || !selectedNode) {
+      return;
+    }
+
+    const opened = await openModel(activeProjectId, targetPath, {
+      navigationMode: "push",
+      failureMode: "keep-current",
+      pruneFailedTarget: false,
+      failureLabel: `drill-down ${formatSelectedPath(targetPath)}`
+    });
+
+    if (!opened) {
+      setDrilldownRecovery({
+        nodeId: selectedNode.id,
+        targetPath
+      });
+      return;
+    }
+
+    setDrilldownRecovery(null);
+  }
+
+  async function handleFrameStepUp(mode: FrameStepUpMode = "default") {
+    if (!activeProjectId || !currentModel || !selectedFrame) {
+      return;
+    }
+
+    setMutatingFrameId(selectedFrame.id);
+    let targetPath = selectedFrame.stepUp?.model ?? null;
+
+    try {
+      const result = await stepUpFrame(activeProjectId, currentModel.path, selectedFrame.id, mode);
+      targetPath = result.link.model;
+      setCurrentModel(result.sourceModel);
+      setStepUpRecovery(null);
+      await refreshTree(targetPath);
+      const opened = await openModel(activeProjectId, targetPath, {
+        navigationMode: "push",
+        failureMode: "keep-current",
+        pruneFailedTarget: false,
+        failureLabel: `step-up ${formatSelectedPath(targetPath)}`
+      });
+
+      if (!opened) {
+        setStepUpRecovery({
+          frameId: selectedFrame.id,
+          targetPath
+        });
+        return;
+      }
+
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+
+      if (targetPath) {
+        setStepUpRecovery({
+          frameId: selectedFrame.id,
+          targetPath
+        });
+      }
+    } finally {
+      setMutatingFrameId(null);
+    }
+  }
+
+  async function handleOpenFrameStepUp() {
+    if (!activeProjectId || !selectedFrame?.stepUp) {
+      return;
+    }
+
+    const targetPath = selectedFrame.stepUp.model;
+    const opened = await openModel(activeProjectId, targetPath, {
+      navigationMode: "push",
+      failureMode: "keep-current",
+      pruneFailedTarget: false,
+      failureLabel: `step-up ${formatSelectedPath(targetPath)}`
+    });
+
+    if (!opened) {
+      setStepUpRecovery({
+        frameId: selectedFrame.id,
+        targetPath
+      });
+      return;
+    }
+
+    setStepUpRecovery(null);
+    setError(null);
   }
 
   async function handleNavigateBack() {
@@ -1164,6 +1392,101 @@ export function App() {
                             Delete node
                           </button>
                         </div>
+                        <div className="drilldown-card">
+                          <span className="selection-label">Drill-down</span>
+                          <p className="panel-copy">
+                            Create a child model in the same folder as the current model or link an existing model as a drill-down target.
+                          </p>
+                          {selectedNode.drilldowns.length === 0 ? (
+                            <p className="status">No child models linked yet.</p>
+                          ) : (
+                            <ul className="edge-list">
+                              {selectedNode.drilldowns.map((drilldownPath) => {
+                                const isAvailable = projectTree ? treeContainsPath(projectTree, drilldownPath) : false;
+
+                                return (
+                                  <li key={`${selectedNode.id}-${drilldownPath}`}>
+                                    <button
+                                      type="button"
+                                      className={`edge-list-item ${!isAvailable ? "edge-list-item-warning" : ""}`}
+                                      onClick={() => void handleOpenDrilldown(drilldownPath)}
+                                      disabled={mutatingDrilldownNodeId === selectedNode.id}
+                                    >
+                                      {isAvailable ? "Open" : "Missing"}
+                                      {" | "}
+                                      {drilldownPath}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          {selectedNodeRecoveryTarget ? (
+                            <div className="drilldown-recovery-card">
+                              <span className="selection-label">Recovery path</span>
+                              <strong>Model not found. Create replacement?</strong>
+                              <span className="selection-path">{selectedNodeRecoveryTarget}</span>
+                              <div className="property-actions">
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => void handleCreateDrilldownModel(selectedNodeRecoveryTarget)}
+                                  disabled={mutatingDrilldownNodeId === selectedNode.id}
+                                >
+                                  {mutatingDrilldownNodeId === selectedNode.id ? "Creating..." : "Create replacement"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => void handleLinkExistingDrilldown(selectedNodeRecoveryTarget)}
+                                  disabled={mutatingDrilldownNodeId === selectedNode.id || !existingDrilldownTargetPath}
+                                >
+                                  Replace with selected model
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="drilldown-link-card">
+                            <label htmlFor="existingDrilldownTarget">Existing model</label>
+                            <select
+                              id="existingDrilldownTarget"
+                              value={existingDrilldownTargetPath}
+                              onChange={(event) => setExistingDrilldownTargetPath(event.target.value)}
+                              disabled={availableDrilldownTargets.length === 0}
+                            >
+                              {availableDrilldownTargets.length === 0 ? (
+                                <option value="">No unlinked models available</option>
+                              ) : (
+                                availableDrilldownTargets.map((candidate) => (
+                                  <option key={candidate} value={candidate}>
+                                    {candidate}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                            <div className="property-actions">
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => void handleCreateDrilldownModel()}
+                                disabled={mutatingDrilldownNodeId === selectedNode.id}
+                              >
+                                {mutatingDrilldownNodeId === selectedNode.id ? "Creating..." : "Create child model"}
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => void handleLinkExistingDrilldown()}
+                                disabled={
+                                  mutatingDrilldownNodeId === selectedNode.id ||
+                                  !existingDrilldownTargetPath
+                                }
+                              >
+                                {mutatingDrilldownNodeId === selectedNode.id ? "Linking..." : "Link selected model"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </form>
                     </>
                   ) : selectedFrame ? (
@@ -1208,7 +1531,75 @@ export function App() {
                             </div>
                           )}
                         </div>
-                        <p className="form-hint">stepUp remains null until M3.</p>
+                        <div className="stepup-card">
+                          <span className="selection-label">Step-up</span>
+                          {selectedFrame.stepUp ? (
+                            <>
+                              <strong>
+                                {selectedFrameRecoveryTarget ? "Upper-level target needs recovery" : "Upper-level target linked"}
+                              </strong>
+                              <span className="selection-path">{selectedFrame.stepUp.model}</span>
+                              <span className="form-hint">Representative node: {selectedFrame.stepUp.nodeId}</span>
+                            </>
+                          ) : (
+                            <>
+                              <strong>No upper-level model yet</strong>
+                              <span className="form-hint">
+                                Step up will create an abstraction model under `models/abstractions/` and persist `frame.stepUp`.
+                              </span>
+                            </>
+                          )}
+                          <div className="property-actions">
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => void handleFrameStepUp("default")}
+                              disabled={mutatingFrameId === selectedFrame.id}
+                            >
+                              {mutatingFrameId === selectedFrame.id
+                                ? selectedFrame.stepUp
+                                  ? "Opening..."
+                                  : "Creating..."
+                                : "Step up"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => void handleOpenFrameStepUp()}
+                              disabled={mutatingFrameId === selectedFrame.id || !selectedFrame.stepUp}
+                            >
+                              Open upper level
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => void handleFrameStepUp("regenerate")}
+                              disabled={mutatingFrameId === selectedFrame.id || !selectedFrame.stepUp}
+                            >
+                              {mutatingFrameId === selectedFrame.id ? "Regenerating..." : "Regenerate"}
+                            </button>
+                          </div>
+                        </div>
+                        {selectedFrameRecoveryTarget ? (
+                          <div className="stepup-recovery-card">
+                            <span className="selection-label">Recovery path</span>
+                            <strong>Upper-level model is missing.</strong>
+                            <span className="selection-path">{selectedFrameRecoveryTarget}</span>
+                            <span className="form-hint">
+                              Use manual regenerate to rebuild the representative node contract without enabling live sync.
+                            </span>
+                            <div className="property-actions">
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => void handleFrameStepUp("regenerate")}
+                                disabled={mutatingFrameId === selectedFrame.id || !selectedFrame.stepUp}
+                              >
+                                {mutatingFrameId === selectedFrame.id ? "Rebuilding..." : "Rebuild target"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="property-actions">
                           <button type="submit" disabled={mutatingFrameId === selectedFrame.id}>
                             {mutatingFrameId === selectedFrame.id ? "Saving..." : "Save frame"}
@@ -1433,8 +1824,34 @@ function formatSelectedPath(path: string): string {
   return path === "project-root" ? "/" : path;
 }
 
+function collectModelPaths(node: ProjectTreeNode): string[] {
+  const paths: string[] = [];
+
+  if (isModelFilePath(node.path)) {
+    paths.push(node.path);
+  }
+
+  for (const child of node.children ?? []) {
+    paths.push(...collectModelPaths(child));
+  }
+
+  return paths;
+}
+
 function isModelFilePath(path: string): boolean {
   return path !== "project.yaml" && path.endsWith(".yaml");
+}
+
+function buildDrilldownModelName(nodeLabel: string): string {
+  return `${nodeLabel.trim() || "Node"} Detail`;
+}
+
+function mergeDrilldownPaths(existingPaths: string[], nextPath: string, replacePath?: string): string[] {
+  const nextPaths = replacePath
+    ? existingPaths.map((candidate) => (candidate === replacePath ? nextPath : candidate))
+    : [...existingPaths, nextPath];
+
+  return nextPaths.filter((candidate, index) => nextPaths.indexOf(candidate) === index);
 }
 
 function describeCreationTarget(path: string): string {

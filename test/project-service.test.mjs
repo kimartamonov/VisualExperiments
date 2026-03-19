@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -137,10 +137,12 @@ async function testNodeLifecycleAndPersistence() {
   const modelText = await readFile(modelAbsolutePath, "utf8");
 
   assert.equal(createdNode.node.label, "Node 1");
+  assert.deepEqual(createdNode.node.drilldowns, []);
   assert.equal(createdNode.model.nodes.length, 1);
   assert.equal(updatedModel.nodes[0]?.label, "Capability");
   assert.equal(updatedModel.nodes[0]?.description, "Reusable business capability");
   assert.deepEqual(updatedModel.nodes[0]?.position, { x: 224, y: 182 });
+  assert.deepEqual(updatedModel.nodes[0]?.drilldowns, []);
   assert.deepEqual(reopened.nodes[0], updatedModel.nodes[0]);
   assert.deepEqual(deletedModel.nodes, []);
   assert.match(modelText, /^nodes: \[\]$/m);
@@ -364,6 +366,124 @@ async function testFrameStepUpLinkPersistsAcrossMembershipEdits() {
   assert.deepEqual(afterDelete.frames[0]?.nodeIds, []);
 }
 
+async function testNodeDrilldownsPersistAndLegacyNodesStayCompatible() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-projects-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Drilldown Studio");
+  const model = await service.createFreeformModel(created.id, "Main Map", null);
+  const detail = await service.createFreeformModel(created.id, "Detail Map", model.path);
+  const modelAbsolutePath = path.join(projectsRoot, created.folderName, model.path);
+
+  const createdNode = await service.createNode(created.id, model.path, {
+    label: "Capability",
+    position: { x: 80, y: 120 }
+  });
+  const linkedModel = await service.updateNode(created.id, model.path, createdNode.node.id, {
+    drilldowns: [detail.path, "models/missing-detail.yaml", detail.path]
+  });
+  const reopenedLinkedModel = await service.getModel(created.id, model.path);
+
+  assert.deepEqual(linkedModel.nodes[0]?.drilldowns, [detail.path, "models/missing-detail.yaml"]);
+  assert.deepEqual(reopenedLinkedModel.nodes[0]?.drilldowns, [detail.path, "models/missing-detail.yaml"]);
+
+  await writeFile(
+    modelAbsolutePath,
+    [
+      "id: model-legacy-node",
+      "name: Main Map",
+      "notation: freeform",
+      "nodes:",
+      "  - id: node-a",
+      "    label: Alpha",
+      "    description: Legacy node",
+      "    position:",
+      "      x: 64",
+      "      y: 96",
+      "edges: []",
+      "frames: []",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const reopenedLegacyModel = await service.getModel(created.id, model.path);
+
+  assert.deepEqual(reopenedLegacyModel.nodes[0]?.drilldowns, []);
+}
+
+async function testFrameStepUpCreatesReusesRegeneratesAndRecovers() {
+  const projectsRoot = await mkdtemp(path.join(os.tmpdir(), "ve-step-up-"));
+  const service = new ProjectService(projectsRoot);
+  const created = await service.createProject("Step Up Studio");
+  const sourceModel = await service.createFreeformModel(created.id, "Capability Map", null);
+  const firstNode = await service.createNode(created.id, sourceModel.path, {
+    label: "Billing",
+    position: { x: 120, y: 160 }
+  });
+  const secondNode = await service.createNode(created.id, sourceModel.path, {
+    label: "Invoices",
+    position: { x: 360, y: 220 }
+  });
+  const frame = await service.createFrame(created.id, sourceModel.path, {
+    name: "Revenue Operations",
+    description: "Upper-level candidate",
+    nodeIds: [firstNode.node.id, secondNode.node.id]
+  });
+
+  const firstStepUp = await service.stepUpFrame(created.id, sourceModel.path, frame.frame.id, "default");
+
+  assert.equal(firstStepUp.created, true);
+  assert.equal(firstStepUp.regenerated, false);
+  assert.deepEqual(firstStepUp.sourceModel.frames[0]?.stepUp, firstStepUp.link);
+  assert.match(firstStepUp.link.model, /^models\/abstractions\/revenue-operations/);
+  assert.equal(firstStepUp.upperModel.nodes.length, 1);
+  assert.equal(firstStepUp.upperModel.nodes[0]?.id, firstStepUp.link.nodeId);
+  assert.equal(firstStepUp.upperModel.nodes[0]?.label, "Revenue Operations");
+  assert.match(firstStepUp.upperModel.nodes[0]?.description ?? "", /nodeCount=2/);
+  assert.deepEqual(firstStepUp.upperModel.nodes[0]?.drilldowns, []);
+
+  await service.updateFrame(created.id, sourceModel.path, frame.frame.id, {
+    name: "Revenue Ops Updated",
+    description: "Manual refresh should be explicit",
+    nodeIds: [firstNode.node.id]
+  });
+
+  const secondStepUp = await service.stepUpFrame(created.id, sourceModel.path, frame.frame.id, "default");
+
+  assert.equal(secondStepUp.created, false);
+  assert.equal(secondStepUp.regenerated, false);
+  assert.deepEqual(secondStepUp.link, firstStepUp.link);
+  assert.equal(secondStepUp.upperModel.nodes[0]?.label, "Revenue Operations");
+  assert.match(secondStepUp.upperModel.nodes[0]?.description ?? "", /nodeCount=2/);
+
+  const recoveredUpperModelPath = path.join(projectsRoot, created.folderName, firstStepUp.link.model);
+  await rm(recoveredUpperModelPath, { force: true });
+
+  await assert.rejects(
+    () => service.stepUpFrame(created.id, sourceModel.path, frame.frame.id, "default"),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /step-up target model/i);
+      return true;
+    }
+  );
+
+  const regeneratedStepUp = await service.stepUpFrame(created.id, sourceModel.path, frame.frame.id, "regenerate");
+  const reopenedSource = await service.getModel(created.id, sourceModel.path);
+  const reopenedUpperModel = await service.getModel(created.id, regeneratedStepUp.link.model);
+
+  assert.equal(regeneratedStepUp.created, false);
+  assert.equal(regeneratedStepUp.regenerated, true);
+  assert.deepEqual(regeneratedStepUp.link, firstStepUp.link);
+  assert.equal(regeneratedStepUp.upperModel.nodes[0]?.id, firstStepUp.link.nodeId);
+  assert.equal(regeneratedStepUp.upperModel.nodes[0]?.label, "Revenue Ops Updated");
+  assert.match(regeneratedStepUp.upperModel.nodes[0]?.description ?? "", /nodeCount=1/);
+  assert.match(regeneratedStepUp.upperModel.nodes[0]?.description ?? "", /Manual refresh should be explicit/);
+  assert.deepEqual(reopenedSource.frames[0]?.stepUp, regeneratedStepUp.link);
+  assert.equal(reopenedUpperModel.nodes[0]?.id, regeneratedStepUp.link.nodeId);
+  assert.equal(reopenedUpperModel.nodes[0]?.label, "Revenue Ops Updated");
+}
+
 const cases = [
   ["createProject bootstraps a project folder with manifest and models directory", testCreateProjectBootstrap],
   ["listProjects and getProject read the manifest back from disk", testListAndReopen],
@@ -377,7 +497,9 @@ const cases = [
   ["createEdge rejects references to missing nodes", testCreateEdgeRejectsMissingNodes],
   ["create/update/delete frame operations persist metadata and membership", testFrameLifecycleAndPersistence],
   ["deleteNode removes node ids from frames without deleting the frame", testDeleteNodeCleansFrameMembershipOnly],
-  ["existing frame stepUp links survive frame edits and membership cleanup", testFrameStepUpLinkPersistsAcrossMembershipEdits]
+  ["existing frame stepUp links survive frame edits and membership cleanup", testFrameStepUpLinkPersistsAcrossMembershipEdits],
+  ["node drilldowns persist and legacy nodes reopen with empty drilldown lists", testNodeDrilldownsPersistAndLegacyNodesStayCompatible],
+  ["frame step-up creates, reuses, regenerates, and recovers missing upper-level targets", testFrameStepUpCreatesReusesRegeneratesAndRecovers]
 ];
 
 for (const [name, run] of cases) {

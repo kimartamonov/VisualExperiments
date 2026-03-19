@@ -12,8 +12,10 @@
     "test": "node test/project-service.test.mjs && node test/navigation-runtime.test.mjs",
     "validate:m1": "node test/foundation-validation.mjs",
     "validate:m2": "node test/freeform-bootstrap-validation.mjs",
+    "validate:m3:drilldown": "node test/drilldown-validation.mjs",
     "validate:m3:navigation": "node test/navigation-context-validation.mjs",
-    "validate:m3:spike": "node test/step-up-spike-validation.mjs"
+    "validate:m3:spike": "node test/step-up-spike-validation.mjs",
+    "validate:m3:stepup": "node test/step-up-validation.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

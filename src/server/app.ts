@@ -95,7 +95,8 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
       const patch = {
         label: typeof request.body?.label === "string" ? request.body.label : undefined,
         description: typeof request.body?.description === "string" ? request.body.description : undefined,
-        position: request.body?.position
+        position: request.body?.position,
+        drilldowns: request.body?.drilldowns
       };
       const model = await projectService.updateNode(request.params.projectId, modelPath, request.params.nodeId, patch);
       response.json({ model });
@@ -169,6 +170,22 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
       const modelPath = typeof request.query.path === "string" ? request.query.path : "";
       const model = await projectService.deleteFrame(request.params.projectId, modelPath, request.params.frameId);
       response.json({ model });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/projects/:projectId/frames/:frameId/step-up", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const mode = request.body?.mode === "regenerate" ? "regenerate" : "default";
+      const result = await projectService.stepUpFrame(
+        request.params.projectId,
+        modelPath,
+        request.params.frameId,
+        mode
+      );
+      response.json(result);
     } catch (error) {
       next(error);
     }

@@ -45,6 +45,7 @@ export interface ModelNode {
   label: string;
   description: string;
   position: ModelNodePosition;
+  drilldowns: string[];
 }
 
 export interface ModelEdge {
@@ -57,6 +58,8 @@ export interface StepUpLink {
   model: string;
   nodeId: string;
 }
+
+export type FrameStepUpMode = "default" | "regenerate";
 
 export interface ModelFrame {
   id: string;
@@ -77,6 +80,14 @@ export interface ModelDocument {
 
 export interface ModelDetails extends ModelDocument {
   path: string;
+}
+
+export interface FrameStepUpResult {
+  sourceModel: ModelDetails;
+  upperModel: ModelDetails;
+  link: StepUpLink;
+  created: boolean;
+  regenerated: boolean;
 }
 
 interface ProjectRecord {
@@ -219,7 +230,8 @@ export class ProjectService {
       id: `node-${randomUUID()}`,
       label: normalizeNodeLabel(input.label, context.model.nodes.length + 1),
       description: "",
-      position: normalizedPosition
+      position: normalizedPosition,
+      drilldowns: []
     };
 
     context.model.nodes.push(node);
@@ -242,6 +254,7 @@ export class ProjectService {
       label?: string;
       description?: string;
       position?: unknown;
+      drilldowns?: unknown;
     }
   ): Promise<ModelDetails> {
     const context = await this.loadModelForMutation(projectId, modelPath);
@@ -267,6 +280,10 @@ export class ProjectService {
 
     if (patch.position !== undefined) {
       node.position = validateNodePosition(patch.position);
+    }
+
+    if (patch.drilldowns !== undefined) {
+      node.drilldowns = validateNodeDrilldowns(patch.drilldowns, context.modelPath);
     }
 
     await this.persistModel(context.absolutePath, context.model);
@@ -439,6 +456,77 @@ export class ProjectService {
     return {
       path: context.modelPath,
       ...context.model
+    };
+  }
+
+  async stepUpFrame(
+    projectId: string,
+    modelPath: string,
+    frameId: string,
+    mode: FrameStepUpMode = "default"
+  ): Promise<FrameStepUpResult> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const frame = context.model.frames.find((candidate) => candidate.id === frameId);
+
+    if (!frame) {
+      throw new NotFoundError(`Frame "${frameId}" was not found.`);
+    }
+
+    const hadExistingLink = frame.stepUp !== null;
+    let link = frame.stepUp;
+
+    if (!link) {
+      link = {
+        model: await this.createUniqueAbstractionPath(context.projectRoot, frame.name),
+        nodeId: `node-${randomUUID()}`
+      };
+      frame.stepUp = link;
+    }
+
+    const upperModelPath = normalizeModelPath(link.model);
+    const upperModelAbsolutePath = resolveInsideRoot(context.projectRoot, upperModelPath);
+    const upperModelExists = await pathExists(upperModelAbsolutePath);
+
+    if (!upperModelExists && hadExistingLink && mode === "default") {
+      throw new NotFoundError(`Step-up target model "${upperModelPath}" was not found.`);
+    }
+
+    let upperModel: ModelDocument;
+
+    if (!upperModelExists) {
+      upperModel = createUpperLevelModelDocument(frame, link.nodeId);
+    } else {
+      upperModel = await readModel(upperModelAbsolutePath);
+
+      if (mode === "regenerate") {
+        upperModel = regenerateUpperLevelModel(upperModel, frame, link.nodeId);
+      }
+    }
+
+    const shouldPersistSourceModel = !hadExistingLink;
+    const shouldPersistUpperModel = !upperModelExists || mode === "regenerate";
+
+    if (shouldPersistUpperModel) {
+      await fs.mkdir(path.dirname(upperModelAbsolutePath), { recursive: true });
+      await this.persistModel(upperModelAbsolutePath, upperModel);
+    }
+
+    if (shouldPersistSourceModel) {
+      await this.persistModel(context.absolutePath, context.model);
+    }
+
+    return {
+      sourceModel: {
+        path: context.modelPath,
+        ...context.model
+      },
+      upperModel: {
+        path: upperModelPath,
+        ...upperModel
+      },
+      link,
+      created: !hadExistingLink,
+      regenerated: mode === "regenerate"
     };
   }
 
@@ -628,6 +716,23 @@ export class ProjectService {
       attempt += 1;
     }
   }
+
+  private async createUniqueAbstractionPath(projectRoot: string, frameName: string): Promise<string> {
+    const baseSlug = slugify(frameName, "step-up");
+    let attempt = 0;
+
+    while (true) {
+      const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+      const candidatePath = `models/abstractions/${baseSlug}${suffix}.yaml`;
+      const absoluteCandidatePath = resolveInsideRoot(projectRoot, candidatePath);
+
+      if (!(await pathExists(absoluteCandidatePath))) {
+        return candidatePath;
+      }
+
+      attempt += 1;
+    }
+  }
 }
 
 export function slugify(value: string, fallback: string): string {
@@ -664,7 +769,7 @@ async function readModel(modelPath: string): Promise<ModelDocument> {
     throw new ValidationError(`Invalid model document at "${modelPath}".`);
   }
 
-  return parsedModel;
+  return normalizeModelDocument(parsedModel);
 }
 
 function isProjectManifest(value: unknown): value is ProjectManifest {
@@ -723,7 +828,9 @@ function isModelNode(value: unknown): value is ModelNode {
     typeof record.id === "string" &&
     typeof record.label === "string" &&
     typeof record.description === "string" &&
-    isModelNodePosition(record.position)
+    isModelNodePosition(record.position) &&
+    (record.drilldowns === undefined ||
+      (Array.isArray(record.drilldowns) && record.drilldowns.every((candidate) => typeof candidate === "string")))
   );
 }
 
@@ -848,6 +955,68 @@ function validateNodePosition(position: unknown): ModelNodePosition {
   };
 }
 
+function createUpperLevelModelDocument(frame: ModelFrame, representativeNodeId: string): ModelDocument {
+  return {
+    id: `model-${randomUUID()}`,
+    name: buildUpperLevelModelName(frame),
+    notation: "freeform",
+    nodes: [buildRepresentativeNode(frame, representativeNodeId)],
+    edges: [],
+    frames: []
+  };
+}
+
+function regenerateUpperLevelModel(model: ModelDocument, frame: ModelFrame, representativeNodeId: string): ModelDocument {
+  const representativeNode = model.nodes.find((candidate) => candidate.id === representativeNodeId);
+
+  if (representativeNode) {
+    representativeNode.label = frame.name;
+    representativeNode.description = buildRepresentativeNodeDescription(frame);
+    representativeNode.position = {
+      x: 160,
+      y: 120
+    };
+    representativeNode.drilldowns = [];
+  } else {
+    model.nodes.push(buildRepresentativeNode(frame, representativeNodeId));
+  }
+
+  model.name = buildUpperLevelModelName(frame);
+
+  return model;
+}
+
+function buildUpperLevelModelName(frame: ModelFrame): string {
+  return `${frame.name} Abstraction`;
+}
+
+function buildRepresentativeNode(frame: ModelFrame, representativeNodeId: string): ModelNode {
+  return {
+    id: representativeNodeId,
+    label: frame.name,
+    description: buildRepresentativeNodeDescription(frame),
+    position: {
+      x: 160,
+      y: 120
+    },
+    drilldowns: []
+  };
+}
+
+function buildRepresentativeNodeDescription(frame: ModelFrame): string {
+  return `Frame ${frame.id}; nodeCount=${frame.nodeIds.length}; ${frame.description}`.trim();
+}
+
+function normalizeModelDocument(model: ModelDocument): ModelDocument {
+  return {
+    ...model,
+    nodes: model.nodes.map((node) => ({
+      ...node,
+      drilldowns: normalizePersistedNodeDrilldowns(node.drilldowns)
+    }))
+  };
+}
+
 function normalizeNodeLabel(rawLabel: string | undefined, fallbackIndex: number): string {
   const nextLabel = rawLabel?.trim();
 
@@ -880,6 +1049,32 @@ function normalizeFrameName(rawName: string | undefined, fallbackIndex: number):
 
 function roundCoordinate(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function normalizePersistedNodeDrilldowns(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new ValidationError("Node drilldowns must be an array.");
+  }
+
+  const nextDrilldowns: string[] = [];
+
+  for (const candidate of value) {
+    if (typeof candidate !== "string") {
+      throw new ValidationError("Node drilldowns must contain only strings.");
+    }
+
+    const normalized = normalizeModelPath(candidate.trim());
+
+    if (!nextDrilldowns.includes(normalized)) {
+      nextDrilldowns.push(normalized);
+    }
+  }
+
+  return nextDrilldowns;
 }
 
 function edgeReferencesNode(edge: ModelEdge, nodeId: string): boolean {
@@ -926,4 +1121,14 @@ function validateFrameNodeIds(value: unknown, nodes: ModelNode[]): string[] {
   }
 
   return nextNodeIds;
+}
+
+function validateNodeDrilldowns(value: unknown, currentModelPath: string): string[] {
+  const nextDrilldowns = normalizePersistedNodeDrilldowns(value);
+
+  if (nextDrilldowns.includes(currentModelPath)) {
+    throw new ValidationError("Node drilldowns cannot point to the current model.");
+  }
+
+  return nextDrilldowns;
 }

@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M3-04`
-- Title: `Implement drill-down create, open and return`
+- Issue ID: `M3-06`
+- Title: `Add multiple drill-down support`
 - Status: `Current`
 - Milestone: `M3. Hierarchy and Semantic Navigation`
-- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-04_Implement_DrillDown_Create_Open_And_Return.md`
+- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-06_Add_Multiple_DrillDown_Support.md`
 - Milestone README: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/README.md`
-- Depends On: `M1-01`, `M2-01`, `M2-02`, `M3-03`
-- Next Issue On Success: `M3-05`
+- Depends On: `M3-04`
+- Next Issue On Success: `M3-07`
 - Blockers: `None`
 
 ---
@@ -59,9 +59,9 @@
 | 12 | M3-01 | M3 | Done | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Step-up synchronization semantics fixed for MVP; no live sync and explicit manual regenerate contract accepted |
 | 13 | M3-02 | M3 | Done | `IssueReport/M3-02_Implementation_Report.md` | `IssueReport/M3-02_Technical_Documentation.md` | Step-up spike proved create/open-existing/manual-regenerate path and preserved canonical stepUp link contract |
 | 14 | M3-03 | M3 | Done | `IssueReport/M3-03_Implementation_Report.md` | `IssueReport/M3-03_Technical_Documentation.md` | Runtime navigation stack, breadcrumbs, back action, and recovery path are now stable |
-| 15 | M3-04 | M3 | Current | - | - | Drill-down implementation |
-| 16 | M3-05 | M3 | Pending | - | - | Step-up implementation |
-| 17 | M3-06 | M3 | Pending | - | - | Multiple drill-down refinement |
+| 15 | M3-04 | M3 | Done | `IssueReport/M3-04_Implementation_Report.md` | `IssueReport/M3-04_Technical_Documentation.md` | Single drill-down create/link/open/return flow and broken-link recovery are now stable |
+| 16 | M3-05 | M3 | Done | `IssueReport/M3-05_Implementation_Report.md` | `IssueReport/M3-05_Technical_Documentation.md` | Production frame step-up flow, regenerate contract, and upper-level navigation are now stable |
+| 17 | M3-06 | M3 | Current | - | - | Multiple drill-down refinement |
 | 18 | M3-07 | M3 | Pending | - | - | Navigation validation |
 | 19 | M3-08 | M3 | Pending | - | - | Navigation blocker fixes |
 | 20 | M4-01 | M4 | Pending | - | - | Late typing |
@@ -95,13 +95,15 @@
 | 2026-03-18 | M3-01 | M3 | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Closed DB-17 for MVP: first step-up creates canonical link, repeats reuse existing target, and regeneration stays explicit |
 | 2026-03-19 | M3-02 | M3 | `IssueReport/M3-02_Implementation_Report.md` | `IssueReport/M3-02_Technical_Documentation.md` | Proved create/open-existing/manual-regenerate step-up path, preserved canonical stepUp link semantics, and unblocked M3-03/M3-05 |
 | 2026-03-19 | M3-03 | M3 | `IssueReport/M3-03_Implementation_Report.md` | `IssueReport/M3-03_Technical_Documentation.md` | Implemented runtime navigation stack, breadcrumbs, back recovery path, and unblocked M3-04/M3-05 |
+| 2026-03-19 | M3-04 | M3 | `IssueReport/M3-04_Implementation_Report.md` | `IssueReport/M3-04_Technical_Documentation.md` | Implemented persisted `Node.drilldowns[]`, single drill-down create/link/open/return flow, and unblocked M3-05/M3-06 |
+| 2026-03-19 | M3-05 | M3 | `IssueReport/M3-05_Implementation_Report.md` | `IssueReport/M3-05_Technical_Documentation.md` | Implemented production frame step-up create or reuse flow, explicit regenerate recovery, and upper-level navigation over the shared M3-03 context |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M3-03` on `2026-03-19`.
-- Implemented a shared runtime navigation contract for cross-model movement and integrated it into the workspace as visible breadcrumbs, back action, and current model context.
-- Added recovery behavior for broken navigation targets without persisting runtime state into YAML and without breaking project tree/open-model behavior.
-- Local checks passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:navigation`.
-- Next issue to execute is `M3-04`.
+- Completed `M3-05` on `2026-03-19`.
+- Implemented production frame step-up with canonical `default` and `regenerate` modes, `models/abstractions/` placement, persisted `frame.stepUp`, and frame-properties UI actions for create/open/rebuild.
+- Added broken-target recovery through explicit regenerate and kept upper-level navigation on the shared M3-03 breadcrumbs/back runtime without introducing live sync.
+- Local checks passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:navigation`, `npm.cmd run validate:m3:drilldown`, `npm.cmd run validate:m3:stepup`.
+- Next issue to execute is `M3-06`.
