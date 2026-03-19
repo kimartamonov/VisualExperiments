@@ -23,7 +23,9 @@
     "validate:m4:notation": "node test/notation-extraction-validation.mjs",
     "validate:m4:typedmodel": "node test/typed-model-validation.mjs",
     "validate:m5:roundtrip": "node test/manual-save-roundtrip-validation.mjs",
-    "validate:m5:recovery": "node test/error-recovery-validation.mjs"
+    "validate:m5:recovery": "node test/error-recovery-validation.mjs",
+    "validate:m5": "node test/persistence-recovery-validation.mjs",
+    "validate:m5:demo": "node test/full-demo-acceptance-validation.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

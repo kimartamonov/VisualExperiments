@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M5-03`
-- Title: `Validate persistence and recovery`
-- Status: `Current`
-- Milestone: `M5. Stability and Demo Readiness`
-- Issue File: `Issue-Tree/M5_Stability_And_Demo_Readiness/M5-03_Validate_Persistence_And_Recovery.md`
+- Issue ID: `None`
+- Title: `MVP execution queue complete`
+- Status: `Done`
+- Milestone: `Completed`
+- Issue File: `None`
 - Milestone README: `Issue-Tree/M5_Stability_And_Demo_Readiness/README.md`
-- Depends On: `M5-01`, `M5-02`
-- Next Issue On Success: `M5-04`
+- Depends On: `M5-05`
+- Next Issue On Success: `None`
 - Blockers: `None`
 
 ---
@@ -71,9 +71,9 @@
 | 24 | M4-05 | M4 | Done | `IssueReport/M4-05_Implementation_Report.md` | `IssueReport/M4-05_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no typing/notation fixes were required |
 | 25 | M5-01 | M5 | Done | `IssueReport/M5-01_Implementation_Report.md` | `IssueReport/M5-01_Technical_Documentation.md` | Manual save, canonical YAML checkpointing, and full round-trip reopen integrity are now stable |
 | 26 | M5-02 | M5 | Done | `IssueReport/M5-02_Implementation_Report.md` | `IssueReport/M5-02_Technical_Documentation.md` | Error handling and recovery fallbacks are stable across invalid YAML, missing links, and missing notation |
-| 27 | M5-03 | M5 | Current | - | - | Persistence/recovery validation |
-| 28 | M5-04 | M5 | Pending | - | - | Full 14-step acceptance |
-| 29 | M5-05 | M5 | Pending | - | - | Final blocker fixes |
+| 27 | M5-03 | M5 | Done | `IssueReport/M5-03_Implementation_Report.md` | `IssueReport/M5-03_Technical_Documentation.md` | Persistence and recovery baseline validated together with no blocker-level findings |
+| 28 | M5-04 | M5 | Done | `IssueReport/M5-04_Implementation_Report.md` | `IssueReport/M5-04_Technical_Documentation.md` | Full 14-step acceptance passed with no critical/high blockers |
+| 29 | M5-05 | M5 | Done | `IssueReport/M5-05_Implementation_Report.md` | `IssueReport/M5-05_Technical_Documentation.md` | Final bugfix slot closed with no critical/high blockers and no code fixes required |
 
 ---
 
@@ -107,13 +107,16 @@
 | 2026-03-19 | M4-05 | M4 | `IssueReport/M4-05_Implementation_Report.md` | `IssueReport/M4-05_Technical_Documentation.md` | Bugfix slot confirmed no typing/notation blockers remained and formally unlocked M5-01 |
 | 2026-03-19 | M5-01 | M5 | `IssueReport/M5-01_Implementation_Report.md` | `IssueReport/M5-01_Technical_Documentation.md` | Implemented explicit manual save, canonical YAML checkpointing, and repeated full-project round-trip reopen integrity across all P0 artifacts |
 | 2026-03-19 | M5-02 | M5 | `IssueReport/M5-02_Implementation_Report.md` | `IssueReport/M5-02_Technical_Documentation.md` | Implemented readable recovery policy for invalid YAML, missing linked models, and missing notation fallback, and unlocked M5-03/M5-04 |
+| 2026-03-19 | M5-03 | M5 | `IssueReport/M5-03_Implementation_Report.md` | `IssueReport/M5-03_Technical_Documentation.md` | Validated AC-12 and AC-13 together, confirmed repeated save/reopen plus recovery-path stability, and formally unlocked M5-04 |
+| 2026-03-19 | M5-04 | M5 | `IssueReport/M5-04_Implementation_Report.md` | `IssueReport/M5-04_Technical_Documentation.md` | Ran the full 14-step demo acceptance, recorded pass evidence for every step, and found no critical/high blockers for sign-off |
+| 2026-03-19 | M5-05 | M5 | `IssueReport/M5-05_Implementation_Report.md` | `IssueReport/M5-05_Technical_Documentation.md` | Final bugfix slot confirmed no critical/high blockers remained, declared no fixes required, and closed the MVP execution queue |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M5-02` on `2026-03-19`.
-- Hardened recovery behavior for invalid YAML, missing drill-down or step-up targets, and missing notation artifacts without expanding scope into repair tooling.
-- Added service regressions and `validate:m5:recovery`, then passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3`, `npm.cmd run validate:m3:drilldown`, `npm.cmd run validate:m3:multidrilldown`, `npm.cmd run validate:m3:navigation`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:stepup`, `npm.cmd run validate:m4:typing`, `npm.cmd run validate:m4:notation`, `npm.cmd run validate:m4:typedmodel`, `npm.cmd run validate:m4`, `npm.cmd run validate:m5:roundtrip`, `npm.cmd run validate:m5:recovery`.
-- `AC-13` is now covered by readable failure localization and reopen-safe recovery fallback behavior.
-- Next issue to execute is `M5-03`.
+- Completed `M5-05` on `2026-03-19`.
+- Re-ran the full regression and acceptance suite to confirm whether any critical/high blockers from `M5-03` or `M5-04` still required fixes.
+- Passed again: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3`, `npm.cmd run validate:m3:drilldown`, `npm.cmd run validate:m3:multidrilldown`, `npm.cmd run validate:m3:navigation`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:stepup`, `npm.cmd run validate:m4:typing`, `npm.cmd run validate:m4:notation`, `npm.cmd run validate:m4:typedmodel`, `npm.cmd run validate:m4`, `npm.cmd run validate:m5:roundtrip`, `npm.cmd run validate:m5:recovery`, `npm.cmd run validate:m5`, `npm.cmd run validate:m5:demo`.
+- No unresolved critical/high blockers remain; `M5-05` closed as an intentional no-fixes-required bugfix slot.
+- MVP execution queue is complete and ready for sign-off.
