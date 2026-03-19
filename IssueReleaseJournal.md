@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M3-02`
-- Title: `Spike one-shot/manual regeneration approach for cross-model navigation`
+- Issue ID: `M3-03`
+- Title: `Implement breadcrumbs, back stack and model context`
 - Status: `Current`
 - Milestone: `M3. Hierarchy and Semantic Navigation`
-- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-02_Spike_OneShot_Manual_Regeneration_Approach.md`
+- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-03_Implement_Breadcrumbs_Back_And_Model_Context.md`
 - Milestone README: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/README.md`
-- Depends On: `M3-01`
-- Next Issue On Success: `M3-03`
+- Depends On: `M2-06`, `M3-02`
+- Next Issue On Success: `M3-04`
 - Blockers: `None`
 
 ---
@@ -57,8 +57,8 @@
 | 10 | M2-05 | M2 | Done | `IssueReport/M2-05_Implementation_Report.md` | `IssueReport/M2-05_Technical_Documentation.md` | Freeform validation passed; blocker-list is empty |
 | 11 | M2-06 | M2 | Done | `IssueReport/M2-06_Implementation_Report.md` | `IssueReport/M2-06_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no freeform fixes were required |
 | 12 | M3-01 | M3 | Done | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Step-up synchronization semantics fixed for MVP; no live sync and explicit manual regenerate contract accepted |
-| 13 | M3-02 | M3 | Current | - | - | Step-up spike |
-| 14 | M3-03 | M3 | Pending | - | - | Breadcrumbs and back |
+| 13 | M3-02 | M3 | Done | `IssueReport/M3-02_Implementation_Report.md` | `IssueReport/M3-02_Technical_Documentation.md` | Step-up spike proved create/open-existing/manual-regenerate path and preserved canonical stepUp link contract |
+| 14 | M3-03 | M3 | Current | - | - | Breadcrumbs and back |
 | 15 | M3-04 | M3 | Pending | - | - | Drill-down implementation |
 | 16 | M3-05 | M3 | Pending | - | - | Step-up implementation |
 | 17 | M3-06 | M3 | Pending | - | - | Multiple drill-down refinement |
@@ -93,13 +93,14 @@
 | 2026-03-18 | M2-05 | M2 | `IssueReport/M2-05_Implementation_Report.md` | `IssueReport/M2-05_Technical_Documentation.md` | Validation passed for AC-3..AC-6 and demo steps 3-5; no critical/high blockers were found |
 | 2026-03-18 | M2-06 | M2 | `IssueReport/M2-06_Implementation_Report.md` | `IssueReport/M2-06_Technical_Documentation.md` | Bugfix gate confirmed no blocker fixes were needed and unlocked M3-01 |
 | 2026-03-18 | M3-01 | M3 | `IssueReport/M3-01_Implementation_Report.md` | `IssueReport/M3-01_Technical_Documentation.md` | Closed DB-17 for MVP: first step-up creates canonical link, repeats reuse existing target, and regeneration stays explicit |
+| 2026-03-19 | M3-02 | M3 | `IssueReport/M3-02_Implementation_Report.md` | `IssueReport/M3-02_Technical_Documentation.md` | Proved create/open-existing/manual-regenerate step-up path, preserved canonical stepUp link semantics, and unblocked M3-03/M3-05 |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M3-01` on `2026-03-18`.
-- Fixed `DB-17` for MVP: first step-up creates and persists the canonical `frame.stepUp` link, repeated default step-up reuses the existing target, and upper-level refresh remains an explicit manual action.
-- Live sync and automatic back-propagation were explicitly kept out of MVP scope.
-- Source-of-truth docs and downstream issue specs are aligned with the accepted contract.
-- Next issue to execute is `M3-02`.
+- Completed `M3-02` on `2026-03-19`.
+- Revalidated the spike against roadmap and issue scope, then confirmed the implementation proves the selected `M3-01` contract end-to-end: first step-up creates the target, repeated default step-up reuses it, and explicit regenerate updates it without live sync.
+- Confirmed persistence safety for canonical `frame.stepUp` links via regression coverage, including reopen after round-trip and membership cleanup without silent link loss.
+- Local checks passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3:spike`.
+- Next issue to execute is `M3-03`.
