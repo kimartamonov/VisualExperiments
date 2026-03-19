@@ -23,6 +23,18 @@ import {
   updateFrame,
   updateNode
 } from "./api";
+import {
+  canNavigateBack,
+  createNavigationState,
+  dropNavigationTarget,
+  getNavigationBreadcrumbs,
+  NavigationOpenMode,
+  NavigationState,
+  navigateBack,
+  navigateToBreadcrumb,
+  openNavigationTarget,
+  toNavigationTarget
+} from "../shared/navigation";
 
 interface DragState {
   nodeId: string;
@@ -36,6 +48,14 @@ interface FrameBounds {
   y: number;
   width: number;
   height: number;
+}
+
+interface OpenModelOptions {
+  navigationMode?: NavigationOpenMode;
+  nextNavigationState?: NavigationState;
+  failureMode?: "keep-current" | "clear-current";
+  pruneFailedTarget?: boolean;
+  failureLabel?: string;
 }
 
 const NODE_WIDTH = 176;
@@ -59,6 +79,7 @@ export function App() {
   const [currentProject, setCurrentProject] = useState<ProjectDetails | null>(null);
   const [projectTree, setProjectTree] = useState<ProjectTreeNode | null>(null);
   const [currentModel, setCurrentModel] = useState<ModelDetails | null>(null);
+  const [navigationState, setNavigationState] = useState<NavigationState>(() => createNavigationState());
   const [selectedTreePath, setSelectedTreePath] = useState<string>("project.yaml");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -90,6 +111,8 @@ export function App() {
   const selectedNode = currentModel?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge = currentModel?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedFrame = currentModel?.frames.find((frame) => frame.id === selectedFrameId) ?? null;
+  const navigationBreadcrumbs = getNavigationBreadcrumbs(navigationState);
+  const canGoBack = canNavigateBack(navigationState);
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
@@ -115,6 +138,7 @@ export function App() {
       setCurrentProject(null);
       setProjectTree(null);
       setCurrentModel(null);
+      setNavigationState(createNavigationState());
       setSelectedTreePath("project.yaml");
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
@@ -229,6 +253,16 @@ export function App() {
     }
   }
 
+  function clearCurrentWorkspaceSelection(nextSelectedPath = "project.yaml") {
+    setCurrentModel(null);
+    setNavigationState(createNavigationState());
+    setSelectedTreePath(nextSelectedPath);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setSelectedFrameId(null);
+    setEdgeCreationSourceId(null);
+  }
+
   async function openProject(projectId: string) {
     setLoadingProject(true);
 
@@ -240,14 +274,18 @@ export function App() {
 
       if (project.defaultModel) {
         setSelectedTreePath(project.defaultModel);
-        await openModel(projectId, project.defaultModel);
+        const opened = await openModel(projectId, project.defaultModel, {
+          navigationMode: "reset",
+          failureMode: "clear-current",
+          pruneFailedTarget: false,
+          failureLabel: `default model ${formatSelectedPath(project.defaultModel)}`
+        });
+
+        if (!opened) {
+          setSelectedTreePath(treeContainsPath(tree, project.defaultModel) ? project.defaultModel : "project.yaml");
+        }
       } else {
-        setSelectedTreePath("project.yaml");
-        setCurrentModel(null);
-        setSelectedNodeId(null);
-        setSelectedEdgeId(null);
-        setSelectedFrameId(null);
-        setEdgeCreationSourceId(null);
+        clearCurrentWorkspaceSelection();
       }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -256,20 +294,40 @@ export function App() {
     }
   }
 
-  async function openModel(projectId: string, modelPath: string) {
+  async function openModel(projectId: string, modelPath: string, options: OpenModelOptions = {}) {
     setLoadingModel(true);
 
     try {
       const model = await getModel(projectId, modelPath);
       setCurrentModel(model);
+      setNavigationState((existing) =>
+        options.nextNavigationState
+          ? {
+              stack: options.nextNavigationState.stack,
+              current: toNavigationTarget(model.path, model.name)
+            }
+          : openNavigationTarget(existing, toNavigationTarget(model.path, model.name), options.navigationMode ?? "push")
+      );
       setSelectedTreePath(model.path);
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
       setSelectedFrameId(null);
       setEdgeCreationSourceId(null);
       setError(null);
+      return true;
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      if (options.failureMode === "clear-current") {
+        clearCurrentWorkspaceSelection();
+      } else {
+        setSelectedTreePath(currentModelRef.current?.path ?? "project.yaml");
+
+        if (options.pruneFailedTarget) {
+          setNavigationState((existing) => dropNavigationTarget(existing, modelPath));
+        }
+      }
+
+      setError(buildModelOpenErrorMessage(options.failureLabel ?? formatSelectedPath(modelPath), requestError, options.failureMode));
+      return false;
     } finally {
       setLoadingModel(false);
     }
@@ -333,7 +391,16 @@ export function App() {
     try {
       const model = await createModel(activeProjectId, modelName, selectedTreePath);
       setModelName("");
-      await Promise.all([refreshTree(model.path), openModel(activeProjectId, model.path), loadProjects()]);
+      await Promise.all([
+        refreshTree(model.path),
+        openModel(activeProjectId, model.path, {
+          navigationMode: "push",
+          failureMode: "keep-current",
+          pruneFailedTarget: false,
+          failureLabel: `new model ${formatSelectedPath(model.path)}`
+        }),
+        loadProjects()
+      ]);
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -540,7 +607,12 @@ export function App() {
       setError(getErrorMessage(requestError));
 
       if (shouldRecoverOnError) {
-        await openModel(projectId, model.path);
+        await openModel(projectId, model.path, {
+          navigationMode: "refresh",
+          failureMode: "keep-current",
+          pruneFailedTarget: false,
+          failureLabel: `current model ${formatSelectedPath(model.path)}`
+        });
       }
     } finally {
       setMutatingNodeId(null);
@@ -552,8 +624,51 @@ export function App() {
     setSelectedTreePath(nextPath);
 
     if (activeProjectId && isModelFilePath(nextPath)) {
-      void openModel(activeProjectId, nextPath);
+      void openModel(activeProjectId, nextPath, {
+        navigationMode: "push",
+        failureMode: "keep-current",
+        pruneFailedTarget: false,
+        failureLabel: `model ${formatSelectedPath(nextPath)}`
+      });
     }
+  }
+
+  async function handleNavigateBack() {
+    if (!activeProjectId) {
+      return;
+    }
+
+    const nextNavigation = navigateBack(navigationState);
+
+    if (!nextNavigation.target) {
+      return;
+    }
+
+    await openModel(activeProjectId, nextNavigation.target.modelPath, {
+      nextNavigationState: nextNavigation.state,
+      failureMode: "keep-current",
+      pruneFailedTarget: true,
+      failureLabel: `back target ${formatSelectedPath(nextNavigation.target.modelPath)}`
+    });
+  }
+
+  async function handleNavigateBreadcrumb(modelPath: string) {
+    if (!activeProjectId || currentModel?.path === modelPath) {
+      return;
+    }
+
+    const nextNavigation = navigateToBreadcrumb(navigationState, modelPath);
+
+    if (!nextNavigation.target) {
+      return;
+    }
+
+    await openModel(activeProjectId, nextNavigation.target.modelPath, {
+      nextNavigationState: nextNavigation.state,
+      failureMode: "keep-current",
+      pruneFailedTarget: true,
+      failureLabel: `breadcrumb ${formatSelectedPath(nextNavigation.target.modelPath)}`
+    });
   }
 
   function handleCanvasDoubleClick(event: ReactPointerEvent<HTMLDivElement>) {
@@ -651,10 +766,10 @@ export function App() {
   return (
     <div className="screen-shell">
       <section className="browser-panel">
-        <div className="eyebrow">M2-04 | Frame containers</div>
+        <div className="eyebrow">M3-03 | Navigation context</div>
         <h1>VisualExperiments</h1>
         <p className="lede">
-          Open freeform models, build node-and-edge graphs, and now group stable node ids inside semantic frames.
+          Open freeform models, keep project context visible, and move between models through a shared runtime navigation path.
         </p>
 
         <form className="project-form" onSubmit={handleCreateProject}>
@@ -720,17 +835,53 @@ export function App() {
         {!loadingProject && currentProject ? (
           <article className="workspace-shell">
             <div className="workspace-toolbar">
-              <div>
+              <div className="workspace-heading">
                 <div className="eyebrow">Project open</div>
                 <h2>{currentProject.name}</h2>
                 <p className="workspace-copy">
-                  The canvas now supports the full freeform graph foundation: nodes, directed edges, and now frames as
-                  persisted semantic containers over stable node ids.
+                  The workspace now keeps a reusable navigation context for future drill-down and step-up flows without
+                  persisting runtime breadcrumbs into YAML.
                 </p>
+                <div className="workspace-context-card">
+                  <span className="selection-label">Current model context</span>
+                  <strong>{currentModel ? currentModel.name : "Project root"}</strong>
+                  <span className="selection-path">
+                    {currentModel ? currentModel.path : "Select a YAML model from the project tree to begin navigation."}
+                  </span>
+                  {navigationBreadcrumbs.length > 0 ? (
+                    <ol className="breadcrumb-list" aria-label="Model breadcrumbs">
+                      {navigationBreadcrumbs.map((target, index) => {
+                        const isCurrent = currentModel?.path === target.modelPath;
+
+                        return (
+                          <li key={`${target.modelPath}-${index}`} className="breadcrumb-item">
+                            {index > 0 ? <span className="breadcrumb-divider">/</span> : null}
+                            <button
+                              type="button"
+                              className={`breadcrumb-button ${isCurrent ? "breadcrumb-button-current" : ""}`}
+                              onClick={() => void handleNavigateBreadcrumb(target.modelPath)}
+                              disabled={isCurrent || loadingModel}
+                            >
+                              <span className="breadcrumb-name">{target.modelName}</span>
+                              <span className="breadcrumb-path">{target.modelPath}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <p className="panel-copy">
+                      Breadcrumbs will appear after the first model opens and will stay in runtime state only.
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="toolbar-actions">
                 <button type="button" className="ghost-button" onClick={() => navigateTo("/")}>
                   Back to projects
+                </button>
+                <button type="button" className="ghost-button" onClick={() => void handleNavigateBack()} disabled={!canGoBack || loadingModel}>
+                  {loadingModel && canGoBack ? "Opening..." : "Back"}
                 </button>
                 <button type="button" className="ghost-button" onClick={() => void refreshTree()} disabled={loadingTree}>
                   {loadingTree ? "Refreshing..." : "Refresh tree"}
@@ -815,12 +966,15 @@ export function App() {
                     <>
                       <p>
                         Double-click to place nodes, drag cards to move them, then create outgoing edges or define frames
-                        that keep semantic membership on stable node ids.
+                        while the workspace keeps the current model path and return targets visible.
                       </p>
                       <div className="selection-card">
                         <span className="selection-label">Opened model</span>
                         <strong>{currentModel.name}</strong>
                         <span className="selection-path">{currentModel.path}</span>
+                        <span className="selection-path">
+                          Navigation depth: {navigationBreadcrumbs.length} {navigationBreadcrumbs.length === 1 ? "model" : "models"}
+                        </span>
                       </div>
                       {edgeCreationSourceId ? (
                         <div className="edge-mode-banner">
@@ -1105,6 +1259,15 @@ export function App() {
                   ) : (
                     <>
                       <div className="property-card">
+                        <span className="selection-label">Navigation context</span>
+                        <strong>{navigationBreadcrumbs.length} {navigationBreadcrumbs.length === 1 ? "model" : "models"} in path</strong>
+                        <span className="selection-path">
+                          {canGoBack
+                            ? `Back target: ${navigationState.stack[navigationState.stack.length - 1]?.modelPath ?? "n/a"}`
+                            : "No back target yet"}
+                        </span>
+                      </div>
+                      <div className="property-card">
                         <span className="selection-label">Model ID</span>
                         <strong>{currentModel.id}</strong>
                       </div>
@@ -1236,6 +1399,16 @@ function TreeNodeView({ node, selectedPath, onSelectNode, depth }: TreeNodeViewP
       ) : null}
     </li>
   );
+}
+
+function buildModelOpenErrorMessage(targetLabel: string, error: unknown, failureMode?: "keep-current" | "clear-current"): string {
+  const baseMessage = getErrorMessage(error);
+
+  if (failureMode === "clear-current") {
+    return `Could not open ${targetLabel}. ${baseMessage} Select another model from the project tree to recover.`;
+  }
+
+  return `Could not open ${targetLabel}. ${baseMessage} The current workspace context stayed in place so you can recover from the tree or breadcrumbs.`;
 }
 
 function getErrorMessage(error: unknown): string {

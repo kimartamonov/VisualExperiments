@@ -29,9 +29,11 @@ await build({
   entryPoints: [
     path.join(rootDir, "src", "server", "app.ts"),
     path.join(rootDir, "src", "server", "index.ts"),
-    path.join(rootDir, "src", "server", "project-service.ts")
+    path.join(rootDir, "src", "server", "project-service.ts"),
+    path.join(rootDir, "src", "shared", "navigation.ts")
   ],
   bundle: true,
+  entryNames: "[name]",
   format: "esm",
   outdir: serverDir,
   packages: "external",

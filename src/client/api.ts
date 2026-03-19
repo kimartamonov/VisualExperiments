@@ -38,12 +38,17 @@ export interface ModelEdge {
   target: string;
 }
 
+export interface StepUpLink {
+  model: string;
+  nodeId: string;
+}
+
 export interface ModelFrame {
   id: string;
   name: string;
   description: string;
   nodeIds: string[];
-  stepUp: null;
+  stepUp: StepUpLink | null;
 }
 
 export interface ModelDetails {

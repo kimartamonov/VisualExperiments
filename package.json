@@ -9,9 +9,10 @@
     "dev": "tsx watch src/server/index.ts",
     "prestart": "node scripts/build.mjs",
     "start": "node dist/server/index.js",
-    "test": "node test/project-service.test.mjs",
+    "test": "node test/project-service.test.mjs && node test/navigation-runtime.test.mjs",
     "validate:m1": "node test/foundation-validation.mjs",
     "validate:m2": "node test/freeform-bootstrap-validation.mjs",
+    "validate:m3:navigation": "node test/navigation-context-validation.mjs",
     "validate:m3:spike": "node test/step-up-spike-validation.mjs"
   },
   "dependencies": {
