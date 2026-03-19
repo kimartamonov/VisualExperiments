@@ -1,3 +1,5 @@
+import type { ModelNodeTyping } from "../shared/node-typing";
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -11,6 +13,14 @@ export interface ProjectDetails extends ProjectSummary {
   manifestPath: string;
   modelsPath: string;
   hasModels: boolean;
+}
+
+export interface ProjectSaveResult {
+  projectId: string;
+  savedAt: string;
+  modelCount: number;
+  notationCount: number;
+  defaultModel?: string;
 }
 
 export interface ProjectTreeNode {
@@ -31,6 +41,7 @@ export interface ModelNode {
   description: string;
   position: ModelNodePosition;
   drilldowns: string[];
+  typing?: ModelNodeTyping;
 }
 
 export interface ModelEdge {
@@ -72,6 +83,32 @@ export interface FrameStepUpResult {
   regenerated: boolean;
 }
 
+export interface NotationTypeDefinition {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface NotationDetails {
+  id: string;
+  path: string;
+  name: string;
+  types: NotationTypeDefinition[];
+}
+
+export interface CreateNotationResult {
+  model: ModelDetails;
+  notation: NotationDetails;
+}
+
+export interface NodeUpdatePatch {
+  label?: string;
+  description?: string;
+  position?: ModelNodePosition;
+  drilldowns?: string[];
+  typing?: ModelNodeTyping | null;
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   const response = await fetch("/api/projects");
   return parseResponse<{ projects: ProjectSummary[] }>(response).then((payload) => payload.projects);
@@ -94,18 +131,36 @@ export async function getProject(projectId: string): Promise<ProjectDetails> {
   return parseResponse<{ project: ProjectDetails }>(response).then((payload) => payload.project);
 }
 
+export async function saveProject(projectId: string): Promise<ProjectSaveResult> {
+  const response = await fetch(`/api/projects/${projectId}/save`, {
+    method: "POST"
+  });
+
+  return parseResponse<{ result: ProjectSaveResult }>(response).then((payload) => payload.result);
+}
+
 export async function getProjectTree(projectId: string): Promise<ProjectTreeNode> {
   const response = await fetch(`/api/projects/${projectId}/tree`);
   return parseResponse<{ tree: ProjectTreeNode }>(response).then((payload) => payload.tree);
 }
 
-export async function createModel(projectId: string, name: string, selectedPath: string | null): Promise<ModelDetails> {
+export async function listNotations(projectId: string): Promise<NotationDetails[]> {
+  const response = await fetch(`/api/projects/${projectId}/notations`);
+  return parseResponse<{ notations: NotationDetails[] }>(response).then((payload) => payload.notations);
+}
+
+export async function createModel(
+  projectId: string,
+  name: string,
+  selectedPath: string | null,
+  notationId?: string | null
+): Promise<ModelDetails> {
   const response = await fetch(`/api/projects/${projectId}/models`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ name, selectedPath })
+    body: JSON.stringify({ name, selectedPath, notationId })
   });
 
   return parseResponse<{ model: ModelDetails }>(response).then((payload) => payload.model);
@@ -116,18 +171,31 @@ export async function getModel(projectId: string, modelPath: string): Promise<Mo
   return parseResponse<{ model: ModelDetails }>(response).then((payload) => payload.model);
 }
 
+export async function createNotation(projectId: string, modelPath: string): Promise<CreateNotationResult> {
+  const response = await fetch(`/api/projects/${projectId}/notations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ modelPath })
+  });
+
+  return parseResponse<CreateNotationResult>(response);
+}
+
 export async function createNode(
   projectId: string,
   modelPath: string,
   position: ModelNodePosition,
-  label?: string
+  label?: string,
+  typing?: ModelNodeTyping | null
 ): Promise<{ model: ModelDetails; node: ModelNode }> {
   const response = await fetch(`/api/projects/${projectId}/nodes`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ modelPath, position, label })
+    body: JSON.stringify({ modelPath, position, label, typing })
   });
 
   return parseResponse<{ model: ModelDetails; node: ModelNode }>(response);
@@ -137,7 +205,7 @@ export async function updateNode(
   projectId: string,
   modelPath: string,
   nodeId: string,
-  patch: Partial<Pick<ModelNode, "label" | "description" | "position" | "drilldowns">>
+  patch: NodeUpdatePatch
 ): Promise<ModelDetails> {
   const response = await fetch(`/api/projects/${projectId}/nodes/${encodeURIComponent(nodeId)}`, {
     method: "PATCH",

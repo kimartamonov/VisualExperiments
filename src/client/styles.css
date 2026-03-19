@@ -248,7 +248,36 @@ button:disabled {
 
 .toolbar-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.save-status-card {
+  min-width: 280px;
+  max-width: 360px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(246, 249, 252, 0.92);
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.save-status-card-pending {
+  background: rgba(255, 248, 238, 0.95);
+  border-color: rgba(138, 91, 16, 0.24);
+}
+
+.notation-recovery-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 244, 214, 0.9);
+  border: 1px solid rgba(138, 91, 16, 0.22);
+  color: #7c4d08;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .workspace-context-card {
@@ -552,6 +581,8 @@ button:disabled {
   padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid rgba(31, 41, 51, 0.12);
+  border-left-width: 5px;
+  border-left-color: rgba(31, 41, 51, 0.12);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
   color: #102a43;
@@ -564,10 +595,63 @@ button:disabled {
   line-height: 1.2;
 }
 
-.canvas-node-card span {
+.canvas-node-card > span:not(.canvas-node-type-badge) {
   color: #52606d;
   font-size: 0.86rem;
   line-height: 1.45;
+}
+
+.canvas-node-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.88);
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.canvas-node-card[data-node-type-color="amber"] {
+  background: linear-gradient(180deg, rgba(255, 251, 235, 0.97), rgba(255, 255, 255, 0.96));
+  border-left-color: #d97706;
+}
+
+.canvas-node-card[data-node-type-color="teal"] {
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.97), rgba(255, 255, 255, 0.96));
+  border-left-color: #0f766e;
+}
+
+.canvas-node-card[data-node-type-color="rose"] {
+  background: linear-gradient(180deg, rgba(255, 241, 242, 0.97), rgba(255, 255, 255, 0.96));
+  border-left-color: #e11d48;
+}
+
+.canvas-node-card[data-node-type-color="blue"] {
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.97), rgba(255, 255, 255, 0.96));
+  border-left-color: #2563eb;
+}
+
+.canvas-node-card[data-node-type-color="amber"] .canvas-node-type-badge {
+  background: rgba(251, 191, 36, 0.18);
+  color: #92400e;
+}
+
+.canvas-node-card[data-node-type-color="teal"] .canvas-node-type-badge {
+  background: rgba(45, 212, 191, 0.18);
+  color: #115e59;
+}
+
+.canvas-node-card[data-node-type-color="rose"] .canvas-node-type-badge {
+  background: rgba(244, 63, 94, 0.14);
+  color: #9f1239;
+}
+
+.canvas-node-card[data-node-type-color="blue"] .canvas-node-type-badge {
+  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
 }
 
 .canvas-node-card-selected {
@@ -670,6 +754,47 @@ button:disabled {
   margin-top: 14px;
 }
 
+.type-card,
+.type-preview-card {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(31, 41, 51, 0.08);
+}
+
+.type-card label {
+  display: block;
+  margin-top: 10px;
+}
+
+.type-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.type-preview-card[data-node-type-color="amber"] {
+  background: rgba(255, 247, 237, 0.92);
+  border-color: rgba(217, 119, 6, 0.18);
+}
+
+.type-preview-card[data-node-type-color="teal"] {
+  background: rgba(240, 253, 250, 0.92);
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.type-preview-card[data-node-type-color="rose"] {
+  background: rgba(255, 241, 242, 0.92);
+  border-color: rgba(225, 29, 72, 0.18);
+}
+
+.type-preview-card[data-node-type-color="blue"] {
+  background: rgba(239, 246, 255, 0.92);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
 .edge-list {
   list-style: none;
   margin: 12px 0 0;
@@ -678,6 +803,12 @@ button:disabled {
 
 .edge-list li + li {
   margin-top: 8px;
+}
+
+.linked-model-item {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
 }
 
 .edge-list-item {
@@ -696,6 +827,11 @@ button:disabled {
 .edge-list-item-warning {
   background: rgba(255, 247, 237, 0.92);
   color: #9a3412;
+}
+
+.linked-model-remove {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .drilldown-card {
@@ -796,6 +932,10 @@ button:disabled {
   .toolbar-actions,
   .panel-header-row,
   .property-actions {
+    flex-direction: column;
+  }
+
+  .linked-model-item {
     flex-direction: column;
   }
 }

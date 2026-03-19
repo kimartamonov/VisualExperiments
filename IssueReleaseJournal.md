@@ -29,14 +29,14 @@
 
 ## Current Active Issue
 
-- Issue ID: `M3-06`
-- Title: `Add multiple drill-down support`
+- Issue ID: `M5-03`
+- Title: `Validate persistence and recovery`
 - Status: `Current`
-- Milestone: `M3. Hierarchy and Semantic Navigation`
-- Issue File: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/M3-06_Add_Multiple_DrillDown_Support.md`
-- Milestone README: `Issue-Tree/M3_Hierarchy_and_Semantic_Navigation/README.md`
-- Depends On: `M3-04`
-- Next Issue On Success: `M3-07`
+- Milestone: `M5. Stability and Demo Readiness`
+- Issue File: `Issue-Tree/M5_Stability_And_Demo_Readiness/M5-03_Validate_Persistence_And_Recovery.md`
+- Milestone README: `Issue-Tree/M5_Stability_And_Demo_Readiness/README.md`
+- Depends On: `M5-01`, `M5-02`
+- Next Issue On Success: `M5-04`
 - Blockers: `None`
 
 ---
@@ -61,17 +61,17 @@
 | 14 | M3-03 | M3 | Done | `IssueReport/M3-03_Implementation_Report.md` | `IssueReport/M3-03_Technical_Documentation.md` | Runtime navigation stack, breadcrumbs, back action, and recovery path are now stable |
 | 15 | M3-04 | M3 | Done | `IssueReport/M3-04_Implementation_Report.md` | `IssueReport/M3-04_Technical_Documentation.md` | Single drill-down create/link/open/return flow and broken-link recovery are now stable |
 | 16 | M3-05 | M3 | Done | `IssueReport/M3-05_Implementation_Report.md` | `IssueReport/M3-05_Technical_Documentation.md` | Production frame step-up flow, regenerate contract, and upper-level navigation are now stable |
-| 17 | M3-06 | M3 | Current | - | - | Multiple drill-down refinement |
-| 18 | M3-07 | M3 | Pending | - | - | Navigation validation |
-| 19 | M3-08 | M3 | Pending | - | - | Navigation blocker fixes |
-| 20 | M4-01 | M4 | Pending | - | - | Late typing |
-| 21 | M4-02 | M4 | Pending | - | - | Notation extraction |
-| 22 | M4-03 | M4 | Pending | - | - | Typed model creation |
-| 23 | M4-04 | M4 | Pending | - | - | Typing/notation validation |
-| 24 | M4-05 | M4 | Pending | - | - | Typing/notation blocker fixes |
-| 25 | M5-01 | M5 | Pending | - | - | Save and round-trip integrity |
-| 26 | M5-02 | M5 | Pending | - | - | Error handling and recovery |
-| 27 | M5-03 | M5 | Pending | - | - | Persistence/recovery validation |
+| 17 | M3-06 | M3 | Done | `IssueReport/M3-06_Implementation_Report.md` | `IssueReport/M3-06_Technical_Documentation.md` | Multi-drilldown add/open/remove flow and safe link removal are now stable |
+| 18 | M3-07 | M3 | Done | `IssueReport/M3-07_Implementation_Report.md` | `IssueReport/M3-07_Technical_Documentation.md` | Hierarchy milestone validation passed; no critical/high blocker findings were found |
+| 19 | M3-08 | M3 | Done | `IssueReport/M3-08_Implementation_Report.md` | `IssueReport/M3-08_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no hierarchy fixes were required |
+| 20 | M4-01 | M4 | Done | `IssueReport/M4-01_Implementation_Report.md` | `IssueReport/M4-01_Technical_Documentation.md` | Late typing with persisted type or color cues is now stable |
+| 21 | M4-02 | M4 | Done | `IssueReport/M4-02_Implementation_Report.md` | `IssueReport/M4-02_Technical_Documentation.md` | Notation extraction, manifest registration, and source-model binding are now stable |
+| 22 | M4-03 | M4 | Done | `IssueReport/M4-03_Implementation_Report.md` | `IssueReport/M4-03_Technical_Documentation.md` | Typed model creation, notation registry loading, and typed-node create flow are now stable |
+| 23 | M4-04 | M4 | Done | `IssueReport/M4-04_Implementation_Report.md` | `IssueReport/M4-04_Technical_Documentation.md` | Typing/notation milestone validation passed with no critical/high blocker findings |
+| 24 | M4-05 | M4 | Done | `IssueReport/M4-05_Implementation_Report.md` | `IssueReport/M4-05_Technical_Documentation.md` | Bugfix slot closed with empty blocker-list; no typing/notation fixes were required |
+| 25 | M5-01 | M5 | Done | `IssueReport/M5-01_Implementation_Report.md` | `IssueReport/M5-01_Technical_Documentation.md` | Manual save, canonical YAML checkpointing, and full round-trip reopen integrity are now stable |
+| 26 | M5-02 | M5 | Done | `IssueReport/M5-02_Implementation_Report.md` | `IssueReport/M5-02_Technical_Documentation.md` | Error handling and recovery fallbacks are stable across invalid YAML, missing links, and missing notation |
+| 27 | M5-03 | M5 | Current | - | - | Persistence/recovery validation |
 | 28 | M5-04 | M5 | Pending | - | - | Full 14-step acceptance |
 | 29 | M5-05 | M5 | Pending | - | - | Final blocker fixes |
 
@@ -97,13 +97,23 @@
 | 2026-03-19 | M3-03 | M3 | `IssueReport/M3-03_Implementation_Report.md` | `IssueReport/M3-03_Technical_Documentation.md` | Implemented runtime navigation stack, breadcrumbs, back recovery path, and unblocked M3-04/M3-05 |
 | 2026-03-19 | M3-04 | M3 | `IssueReport/M3-04_Implementation_Report.md` | `IssueReport/M3-04_Technical_Documentation.md` | Implemented persisted `Node.drilldowns[]`, single drill-down create/link/open/return flow, and unblocked M3-05/M3-06 |
 | 2026-03-19 | M3-05 | M3 | `IssueReport/M3-05_Implementation_Report.md` | `IssueReport/M3-05_Technical_Documentation.md` | Implemented production frame step-up create or reuse flow, explicit regenerate recovery, and upper-level navigation over the shared M3-03 context |
+| 2026-03-19 | M3-06 | M3 | `IssueReport/M3-06_Implementation_Report.md` | `IssueReport/M3-06_Technical_Documentation.md` | Implemented multiple drill-down add/open/remove behavior, preserved `Node.drilldowns[]`, and confirmed safe link removal without deleting child models |
+| 2026-03-19 | M3-07 | M3 | `IssueReport/M3-07_Implementation_Report.md` | `IssueReport/M3-07_Technical_Documentation.md` | Validated AC-7/AC-8 and demo steps 6-9 as one hierarchy flow; no critical/high blocker findings were found |
+| 2026-03-19 | M3-08 | M3 | `IssueReport/M3-08_Implementation_Report.md` | `IssueReport/M3-08_Technical_Documentation.md` | Bugfix slot confirmed no hierarchy/navigation blockers remained and formally unlocked M4-01 |
+| 2026-03-19 | M4-01 | M4 | `IssueReport/M4-01_Implementation_Report.md` | `IssueReport/M4-01_Technical_Documentation.md` | Implemented persisted late typing for freeform nodes, color-coded canvas cues, and unlocked notation extraction in M4-02 |
+| 2026-03-19 | M4-02 | M4 | `IssueReport/M4-02_Implementation_Report.md` | `IssueReport/M4-02_Technical_Documentation.md` | Implemented notation extraction from typed models, manifest registration in `project.yaml`, and stable model-to-notation binding for later typed-model creation |
+| 2026-03-19 | M4-03 | M4 | `IssueReport/M4-03_Implementation_Report.md` | `IssueReport/M4-03_Technical_Documentation.md` | Implemented typed model creation from persisted notation, notation-backed node creation on canvas, and reopened typed models without losing notation references |
+| 2026-03-19 | M4-04 | M4 | `IssueReport/M4-04_Implementation_Report.md` | `IssueReport/M4-04_Technical_Documentation.md` | Validated AC-9/AC-10/AC-11 and demo steps 10-13 as one semantic loop; no critical/high blocker findings were found |
+| 2026-03-19 | M4-05 | M4 | `IssueReport/M4-05_Implementation_Report.md` | `IssueReport/M4-05_Technical_Documentation.md` | Bugfix slot confirmed no typing/notation blockers remained and formally unlocked M5-01 |
+| 2026-03-19 | M5-01 | M5 | `IssueReport/M5-01_Implementation_Report.md` | `IssueReport/M5-01_Technical_Documentation.md` | Implemented explicit manual save, canonical YAML checkpointing, and repeated full-project round-trip reopen integrity across all P0 artifacts |
+| 2026-03-19 | M5-02 | M5 | `IssueReport/M5-02_Implementation_Report.md` | `IssueReport/M5-02_Technical_Documentation.md` | Implemented readable recovery policy for invalid YAML, missing linked models, and missing notation fallback, and unlocked M5-03/M5-04 |
 
 ---
 
 ## Latest Execution Note
 
-- Completed `M3-05` on `2026-03-19`.
-- Implemented production frame step-up with canonical `default` and `regenerate` modes, `models/abstractions/` placement, persisted `frame.stepUp`, and frame-properties UI actions for create/open/rebuild.
-- Added broken-target recovery through explicit regenerate and kept upper-level navigation on the shared M3-03 breadcrumbs/back runtime without introducing live sync.
-- Local checks passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:navigation`, `npm.cmd run validate:m3:drilldown`, `npm.cmd run validate:m3:stepup`.
-- Next issue to execute is `M3-06`.
+- Completed `M5-02` on `2026-03-19`.
+- Hardened recovery behavior for invalid YAML, missing drill-down or step-up targets, and missing notation artifacts without expanding scope into repair tooling.
+- Added service regressions and `validate:m5:recovery`, then passed: `npm.cmd run check`, `npm.cmd run build`, `npm.cmd test`, `npm.cmd run validate:m1`, `npm.cmd run validate:m2`, `npm.cmd run validate:m3`, `npm.cmd run validate:m3:drilldown`, `npm.cmd run validate:m3:multidrilldown`, `npm.cmd run validate:m3:navigation`, `npm.cmd run validate:m3:spike`, `npm.cmd run validate:m3:stepup`, `npm.cmd run validate:m4:typing`, `npm.cmd run validate:m4:notation`, `npm.cmd run validate:m4:typedmodel`, `npm.cmd run validate:m4`, `npm.cmd run validate:m5:roundtrip`, `npm.cmd run validate:m5:recovery`.
+- `AC-13` is now covered by readable failure localization and reopen-safe recovery fallback behavior.
+- Next issue to execute is `M5-03`.

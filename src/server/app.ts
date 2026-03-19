@@ -47,6 +47,15 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
     }
   });
 
+  app.post("/api/projects/:projectId/save", async (request, response, next) => {
+    try {
+      const result = await projectService.saveProject(request.params.projectId);
+      response.json({ result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/projects/:projectId/tree", async (request, response, next) => {
     try {
       const tree = await projectService.getProjectTree(request.params.projectId);
@@ -56,11 +65,23 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
     }
   });
 
+  app.get("/api/projects/:projectId/notations", async (request, response, next) => {
+    try {
+      const notations = await projectService.listNotations(request.params.projectId);
+      response.json({ notations });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/projects/:projectId/models", async (request, response, next) => {
     try {
       const name = typeof request.body?.name === "string" ? request.body.name : "";
       const selectedPath = typeof request.body?.selectedPath === "string" ? request.body.selectedPath : null;
-      const model = await projectService.createFreeformModel(request.params.projectId, name, selectedPath);
+      const notationId = typeof request.body?.notationId === "string" ? request.body.notationId.trim() : "";
+      const model = notationId
+        ? await projectService.createTypedModel(request.params.projectId, name, notationId, selectedPath)
+        : await projectService.createFreeformModel(request.params.projectId, name, selectedPath);
       response.status(201).json({ model });
     } catch (error) {
       next(error);
@@ -77,12 +98,23 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
     }
   });
 
+  app.post("/api/projects/:projectId/notations", async (request, response, next) => {
+    try {
+      const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
+      const result = await projectService.createNotationFromModel(request.params.projectId, modelPath);
+      response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/projects/:projectId/nodes", async (request, response, next) => {
     try {
       const modelPath = typeof request.body?.modelPath === "string" ? request.body.modelPath : "";
       const label = typeof request.body?.label === "string" ? request.body.label : undefined;
       const position = request.body?.position;
-      const result = await projectService.createNode(request.params.projectId, modelPath, { label, position });
+      const typing = request.body?.typing;
+      const result = await projectService.createNode(request.params.projectId, modelPath, { label, position, typing });
       response.status(201).json(result);
     } catch (error) {
       next(error);
@@ -96,7 +128,8 @@ export function createApp({ projectRoot, clientRoot }: AppOptions) {
         label: typeof request.body?.label === "string" ? request.body.label : undefined,
         description: typeof request.body?.description === "string" ? request.body.description : undefined,
         position: request.body?.position,
-        drilldowns: request.body?.drilldowns
+        drilldowns: request.body?.drilldowns,
+        typing: request.body?.typing
       };
       const model = await projectService.updateNode(request.params.projectId, modelPath, request.params.nodeId, patch);
       response.json({ model });

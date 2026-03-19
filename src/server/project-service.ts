@@ -5,6 +5,7 @@ import path from "node:path";
 import yaml from "js-yaml";
 
 import { ConflictError, NotFoundError, ValidationError } from "./errors.js";
+import { getNodeTypeDefinition, NODE_TYPE_DEFINITIONS, type ModelNodeTyping } from "../shared/node-typing.js";
 
 export interface ProjectManifest {
   id: string;
@@ -28,6 +29,14 @@ export interface ProjectDetails extends ProjectSummary {
   hasModels: boolean;
 }
 
+export interface ProjectSaveResult {
+  projectId: string;
+  savedAt: string;
+  modelCount: number;
+  notationCount: number;
+  defaultModel?: string;
+}
+
 export interface ProjectTreeNode {
   name: string;
   path: string;
@@ -46,6 +55,7 @@ export interface ModelNode {
   description: string;
   position: ModelNodePosition;
   drilldowns: string[];
+  typing?: ModelNodeTyping;
 }
 
 export interface ModelEdge {
@@ -88,6 +98,28 @@ export interface FrameStepUpResult {
   link: StepUpLink;
   created: boolean;
   regenerated: boolean;
+}
+
+export interface NotationTypeDefinition {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface NotationDocument {
+  id: string;
+  name: string;
+  types: NotationTypeDefinition[];
+  recommendedDrilldowns?: Record<string, string[]>;
+}
+
+export interface NotationDetails extends NotationDocument {
+  path: string;
+}
+
+export interface CreateNotationResult {
+  model: ModelDetails;
+  notation: NotationDetails;
 }
 
 interface ProjectRecord {
@@ -158,7 +190,66 @@ export class ProjectService {
     return this.readTree(projectRoot, "");
   }
 
+  async listNotations(projectId: string): Promise<NotationDetails[]> {
+    const { record, projectRoot } = await this.resolveProjectContext(projectId);
+
+    return this.readNotationDetails(record.manifest, projectRoot);
+  }
+
+  async saveProject(projectId: string): Promise<ProjectSaveResult> {
+    const { record, projectRoot, manifestAbsolutePath } = await this.resolveProjectContext(projectId);
+    const manifest = normalizeProjectManifest(record.manifest);
+    const modelPaths = await this.collectYamlPaths(path.join(projectRoot, "models"), "models");
+    let notationCount = 0;
+
+    for (const modelPath of modelPaths) {
+      const absoluteModelPath = resolveInsideRoot(projectRoot, modelPath);
+      const model = await readModel(absoluteModelPath);
+      await this.persistModel(absoluteModelPath, model);
+    }
+
+    for (const notationPath of manifest.notations ?? []) {
+      const absoluteNotationPath = resolveInsideRoot(projectRoot, notationPath);
+
+      if (!(await pathExists(absoluteNotationPath))) {
+        continue;
+      }
+
+      const notation = await readNotation(absoluteNotationPath);
+      await fs.writeFile(absoluteNotationPath, serializeYaml(notation), "utf8");
+      notationCount += 1;
+    }
+
+    await fs.writeFile(manifestAbsolutePath, serializeManifest(manifest), "utf8");
+
+    return {
+      projectId: record.manifest.id,
+      savedAt: new Date().toISOString(),
+      modelCount: modelPaths.length,
+      notationCount,
+      defaultModel: manifest.defaultModel
+    };
+  }
+
   async createFreeformModel(projectId: string, rawName: string, selectedPath?: string | null): Promise<ModelDetails> {
+    return this.createModelWithNotation(projectId, rawName, selectedPath, "freeform");
+  }
+
+  async createTypedModel(
+    projectId: string,
+    rawName: string,
+    notationId: string,
+    selectedPath?: string | null
+  ): Promise<ModelDetails> {
+    return this.createModelWithNotation(projectId, rawName, selectedPath, notationId);
+  }
+
+  private async createModelWithNotation(
+    projectId: string,
+    rawName: string,
+    selectedPath: string | null | undefined,
+    notationId: "freeform" | string
+  ): Promise<ModelDetails> {
     const name = rawName.trim();
 
     if (!name) {
@@ -166,6 +257,12 @@ export class ProjectService {
     }
 
     const context = await this.resolveProjectContext(projectId);
+    const normalizedNotationId = notationId === "freeform" ? "freeform" : notationId.trim();
+
+    if (normalizedNotationId !== "freeform") {
+      await this.resolveNotationById(context.record.manifest, context.projectRoot, normalizedNotationId);
+    }
+
     const modelsRoot = path.join(context.projectRoot, "models");
     const normalizedSelection = normalizeRelativePath(selectedPath);
     const selectedDirectory = await this.resolveSelectedDirectory(context.projectRoot, modelsRoot, normalizedSelection);
@@ -177,7 +274,7 @@ export class ProjectService {
     const model: ModelDocument = {
       id: `model-${randomUUID()}`,
       name,
-      notation: "freeform",
+      notation: normalizedNotationId,
       nodes: [],
       edges: [],
       frames: []
@@ -216,22 +313,75 @@ export class ProjectService {
     };
   }
 
+  async createNotationFromModel(projectId: string, modelPath: string): Promise<CreateNotationResult> {
+    const context = await this.loadModelForMutation(projectId, modelPath);
+    const notationTypes = extractNotationTypes(context.model);
+
+    if (notationTypes.length === 0) {
+      throw new ValidationError("Current model has no typed nodes to extract into notation.");
+    }
+
+    const notationPath = await this.createUniqueNotationPath(context.projectRoot, context.model.name);
+    const notationId = path.basename(notationPath, ".yaml");
+    const notation: NotationDocument = {
+      id: notationId,
+      name: context.model.name,
+      types: notationTypes
+    };
+    const absoluteNotationPath = resolveInsideRoot(context.projectRoot, notationPath);
+
+    context.model.notation = notationId;
+    context.record.manifest.notations = mergeNotationPaths(context.record.manifest.notations, notationPath);
+
+    await fs.mkdir(path.dirname(absoluteNotationPath), { recursive: true });
+    await fs.writeFile(absoluteNotationPath, serializeYaml(notation), "utf8");
+    await this.persistModel(context.absolutePath, context.model);
+    await fs.writeFile(context.manifestAbsolutePath, serializeManifest(context.record.manifest), "utf8");
+
+    return {
+      model: {
+        path: context.modelPath,
+        ...context.model
+      },
+      notation: {
+        path: notationPath,
+        ...notation
+      }
+    };
+  }
+
   async createNode(
     projectId: string,
     modelPath: string,
     input: {
       label?: string;
       position: unknown;
+      typing?: unknown;
     }
   ): Promise<{ model: ModelDetails; node: ModelNode }> {
     const normalizedPosition = validateNodePosition(input.position);
     const context = await this.loadModelForMutation(projectId, modelPath);
+    const notation =
+      context.model.notation === "freeform"
+        ? null
+        : await this.tryResolveNotationById(context.record.manifest, context.projectRoot, context.model.notation);
+    const typing = input.typing === undefined ? undefined : validateNodeTyping(input.typing);
+
+    if (notation) {
+      if (!typing) {
+        throw new ValidationError(`Typed model "${context.model.name}" requires a notation type when creating a node.`);
+      }
+
+      ensureNotationAllowsTyping(notation, typing);
+    }
+
     const node: ModelNode = {
       id: `node-${randomUUID()}`,
       label: normalizeNodeLabel(input.label, context.model.nodes.length + 1),
       description: "",
       position: normalizedPosition,
-      drilldowns: []
+      drilldowns: [],
+      ...(typing ? { typing } : {})
     };
 
     context.model.nodes.push(node);
@@ -255,6 +405,7 @@ export class ProjectService {
       description?: string;
       position?: unknown;
       drilldowns?: unknown;
+      typing?: unknown;
     }
   ): Promise<ModelDetails> {
     const context = await this.loadModelForMutation(projectId, modelPath);
@@ -284,6 +435,16 @@ export class ProjectService {
 
     if (patch.drilldowns !== undefined) {
       node.drilldowns = validateNodeDrilldowns(patch.drilldowns, context.modelPath);
+    }
+
+    if (patch.typing !== undefined) {
+      const nextTyping = validateNodeTyping(patch.typing);
+
+      if (nextTyping) {
+        node.typing = nextTyping;
+      } else {
+        delete node.typing;
+      }
     }
 
     await this.persistModel(context.absolutePath, context.model);
@@ -586,8 +747,15 @@ export class ProjectService {
   private async loadModelForMutation(
     projectId: string,
     requestedPath: string
-  ): Promise<{ projectRoot: string; absolutePath: string; modelPath: string; model: ModelDocument }> {
-    const { projectRoot } = await this.resolveProjectContext(projectId);
+  ): Promise<{
+    record: ProjectRecord;
+    projectRoot: string;
+    manifestAbsolutePath: string;
+    absolutePath: string;
+    modelPath: string;
+    model: ModelDocument;
+  }> {
+    const { record, projectRoot, manifestAbsolutePath } = await this.resolveProjectContext(projectId);
     const modelPath = normalizeModelPath(requestedPath);
     const absolutePath = resolveInsideRoot(projectRoot, modelPath);
 
@@ -596,7 +764,9 @@ export class ProjectService {
     }
 
     return {
+      record,
       projectRoot,
+      manifestAbsolutePath,
       absolutePath,
       modelPath,
       model: await readModel(absolutePath)
@@ -605,6 +775,92 @@ export class ProjectService {
 
   private async persistModel(absolutePath: string, model: ModelDocument): Promise<void> {
     await fs.writeFile(absolutePath, serializeYaml(model), "utf8");
+  }
+
+  private async collectYamlPaths(absoluteDirectory: string, relativeDirectory: string): Promise<string[]> {
+    if (!(await pathExists(absoluteDirectory))) {
+      return [];
+    }
+
+    const entries = await fs.readdir(absoluteDirectory, { withFileTypes: true });
+    const nestedPaths = await Promise.all(
+      entries
+        .filter((entry) => !entry.name.startsWith("."))
+        .map(async (entry) => {
+          const nextRelativePath = toPosixPath(path.join(relativeDirectory, entry.name));
+          const nextAbsolutePath = path.join(absoluteDirectory, entry.name);
+
+          if (entry.isDirectory()) {
+            return this.collectYamlPaths(nextAbsolutePath, nextRelativePath);
+          }
+
+          if (entry.isFile() && entry.name.endsWith(".yaml")) {
+            return [nextRelativePath];
+          }
+
+          return [];
+        })
+    );
+
+    return nestedPaths.flat().sort((left, right) => left.localeCompare(right));
+  }
+
+  private async readNotationDetails(manifest: ProjectManifest, projectRoot: string): Promise<NotationDetails[]> {
+    const notationDetails: NotationDetails[] = [];
+
+    for (const notationPath of manifest.notations ?? []) {
+      const absoluteNotationPath = resolveInsideRoot(projectRoot, notationPath);
+
+      if (!(await pathExists(absoluteNotationPath))) {
+        continue;
+      }
+
+      try {
+        notationDetails.push({
+          path: notationPath,
+          ...(await readNotation(absoluteNotationPath))
+        });
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    return notationDetails.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  private async resolveNotationById(
+    manifest: ProjectManifest,
+    projectRoot: string,
+    notationId: string
+  ): Promise<NotationDetails> {
+    const notationDetails = await this.readNotationDetails(manifest, projectRoot);
+    const notation = notationDetails.find((candidate) => candidate.id === notationId);
+
+    if (!notation) {
+      throw new ValidationError(`Notation "${notationId}" is not registered in project.yaml.`);
+    }
+
+    return notation;
+  }
+
+  private async tryResolveNotationById(
+    manifest: ProjectManifest,
+    projectRoot: string,
+    notationId: string
+  ): Promise<NotationDetails | null> {
+    try {
+      return await this.resolveNotationById(manifest, projectRoot, notationId);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        return null;
+      }
+
+      throw error;
+    }
   }
 
   private toSummary(record: ProjectRecord): ProjectSummary {
@@ -733,6 +989,23 @@ export class ProjectService {
       attempt += 1;
     }
   }
+
+  private async createUniqueNotationPath(projectRoot: string, notationName: string): Promise<string> {
+    const baseSlug = slugify(notationName, "notation");
+    let attempt = 0;
+
+    while (true) {
+      const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+      const candidatePath = `notations/${baseSlug}${suffix}.yaml`;
+      const absoluteCandidatePath = resolveInsideRoot(projectRoot, candidatePath);
+
+      if (!(await pathExists(absoluteCandidatePath))) {
+        return candidatePath;
+      }
+
+      attempt += 1;
+    }
+  }
 }
 
 export function slugify(value: string, fallback: string): string {
@@ -752,24 +1025,53 @@ function serializeManifest(manifest: ProjectManifest): string {
 
 async function readManifest(manifestPath: string): Promise<ProjectManifest> {
   const rawManifest = await fs.readFile(manifestPath, "utf8");
-  const parsedManifest = yaml.load(rawManifest);
+  let parsedManifest: unknown;
+
+  try {
+    parsedManifest = yaml.load(rawManifest);
+  } catch {
+    throw new ValidationError(`Invalid project manifest at "${manifestPath}".`);
+  }
 
   if (!isProjectManifest(parsedManifest)) {
     throw new ValidationError(`Invalid project manifest at "${manifestPath}".`);
   }
 
-  return parsedManifest;
+  return normalizeProjectManifest(parsedManifest);
 }
 
 async function readModel(modelPath: string): Promise<ModelDocument> {
   const rawModel = await fs.readFile(modelPath, "utf8");
-  const parsedModel = yaml.load(rawModel);
+  let parsedModel: unknown;
+
+  try {
+    parsedModel = yaml.load(rawModel);
+  } catch {
+    throw new ValidationError(`Invalid model document at "${modelPath}".`);
+  }
 
   if (!isModelDocument(parsedModel)) {
     throw new ValidationError(`Invalid model document at "${modelPath}".`);
   }
 
   return normalizeModelDocument(parsedModel);
+}
+
+async function readNotation(notationPath: string): Promise<NotationDocument> {
+  const rawNotation = await fs.readFile(notationPath, "utf8");
+  let parsedNotation: unknown;
+
+  try {
+    parsedNotation = yaml.load(rawNotation);
+  } catch {
+    throw new ValidationError(`Invalid notation document at "${notationPath}".`);
+  }
+
+  if (!isNotationDocument(parsedNotation)) {
+    throw new ValidationError(`Invalid notation document at "${notationPath}".`);
+  }
+
+  return normalizeNotationDocument(parsedNotation);
 }
 
 function isProjectManifest(value: unknown): value is ProjectManifest {
@@ -797,6 +1099,22 @@ function isProjectManifest(value: unknown): value is ProjectManifest {
   return true;
 }
 
+function isNotationDocument(value: unknown): value is NotationDocument {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return (
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    Array.isArray(record.types) &&
+    record.types.every(isNotationTypeDefinition) &&
+    (record.recommendedDrilldowns === undefined || isRecommendedDrilldownMap(record.recommendedDrilldowns))
+  );
+}
+
 function isModelDocument(value: unknown): value is ModelDocument {
   if (!value || typeof value !== "object") {
     return false;
@@ -817,6 +1135,26 @@ function isModelDocument(value: unknown): value is ModelDocument {
   );
 }
 
+function isNotationTypeDefinition(value: unknown): value is NotationTypeDefinition {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.id === "string" && typeof record.name === "string" && typeof record.color === "string";
+}
+
+function isRecommendedDrilldownMap(value: unknown): value is Record<string, string[]> {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return Object.values(value as Record<string, unknown>).every(
+    (candidate) => Array.isArray(candidate) && candidate.every((entry) => typeof entry === "string")
+  );
+}
+
 function isModelNode(value: unknown): value is ModelNode {
   if (!value || typeof value !== "object") {
     return false;
@@ -830,8 +1168,19 @@ function isModelNode(value: unknown): value is ModelNode {
     typeof record.description === "string" &&
     isModelNodePosition(record.position) &&
     (record.drilldowns === undefined ||
-      (Array.isArray(record.drilldowns) && record.drilldowns.every((candidate) => typeof candidate === "string")))
+      (Array.isArray(record.drilldowns) && record.drilldowns.every((candidate) => typeof candidate === "string"))) &&
+    (record.typing === undefined || record.typing === null || isModelNodeTyping(record.typing))
   );
+}
+
+function isModelNodeTyping(value: unknown): value is ModelNodeTyping {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.typeId === "string" && typeof record.colorToken === "string";
 }
 
 function isModelNodePosition(value: unknown): value is ModelNodePosition {
@@ -924,6 +1273,16 @@ function normalizeModelPath(requestedPath: string): string {
   return normalizedPath;
 }
 
+function normalizeNotationPath(requestedPath: string): string {
+  const normalizedPath = normalizeRelativePath(requestedPath);
+
+  if (!normalizedPath || !normalizedPath.endsWith(".yaml") || normalizedPath === "project.yaml") {
+    throw new ValidationError("A valid notation path is required.");
+  }
+
+  return normalizedPath;
+}
+
 function resolveInsideRoot(root: string, relativePath: string): string {
   const absoluteRoot = path.resolve(root);
   const absolutePath = path.resolve(root, relativePath);
@@ -1009,11 +1368,92 @@ function buildRepresentativeNodeDescription(frame: ModelFrame): string {
 
 function normalizeModelDocument(model: ModelDocument): ModelDocument {
   return {
-    ...model,
-    nodes: model.nodes.map((node) => ({
-      ...node,
-      drilldowns: normalizePersistedNodeDrilldowns(node.drilldowns)
+    id: model.id,
+    name: model.name,
+    notation: model.notation,
+    nodes: model.nodes.map((node) => normalizeModelNode(node)),
+    edges: model.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target
+    })),
+    frames: model.frames.map((frame) => ({
+      id: frame.id,
+      name: frame.name,
+      description: frame.description,
+      nodeIds: [...frame.nodeIds],
+      stepUp: frame.stepUp
+        ? {
+            model: frame.stepUp.model,
+            nodeId: frame.stepUp.nodeId
+          }
+        : null
     }))
+  };
+}
+
+function extractNotationTypes(model: ModelDocument): NotationTypeDefinition[] {
+  const typedIds = new Set(model.nodes.flatMap((node) => (node.typing ? [node.typing.typeId] : [])));
+
+  return NODE_TYPE_DEFINITIONS.filter((definition) => typedIds.has(definition.id)).map((definition) => ({
+    id: definition.id,
+    name: definition.label,
+    color: definition.hexColor
+  }));
+}
+
+function normalizeModelNode(node: ModelNode): ModelNode {
+  const normalizedTyping = normalizePersistedNodeTyping(node.typing);
+
+  return {
+    id: node.id,
+    label: node.label,
+    description: node.description,
+    position: {
+      x: roundCoordinate(node.position.x),
+      y: roundCoordinate(node.position.y)
+    },
+    drilldowns: normalizePersistedNodeDrilldowns(node.drilldowns),
+    ...(normalizedTyping ? { typing: normalizedTyping } : {})
+  };
+}
+
+function normalizeProjectManifest(manifest: ProjectManifest): ProjectManifest {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    ...(manifest.defaultModel ? { defaultModel: normalizeModelPath(manifest.defaultModel) } : {}),
+    ...(manifest.notations?.length
+      ? {
+          notations: manifest.notations
+            .map((notationPath) => normalizeNotationPath(notationPath))
+            .filter((notationPath, index, collection) => collection.indexOf(notationPath) === index)
+        }
+      : {})
+  };
+}
+
+function normalizeNotationDocument(notation: NotationDocument): NotationDocument {
+  return {
+    id: notation.id,
+    name: notation.name,
+    types: notation.types.map((type) => ({
+      id: type.id,
+      name: type.name,
+      color: type.color
+    })),
+    ...(notation.recommendedDrilldowns
+      ? {
+          recommendedDrilldowns: Object.fromEntries(
+            Object.entries(notation.recommendedDrilldowns).map(([typeId, targets]) => [
+              typeId,
+              targets
+                .map((targetPath) => normalizeModelPath(targetPath))
+                .filter((targetPath, index, collection) => collection.indexOf(targetPath) === index)
+            ])
+          )
+        }
+      : {})
   };
 }
 
@@ -1077,6 +1517,37 @@ function normalizePersistedNodeDrilldowns(value: unknown): string[] {
   return nextDrilldowns;
 }
 
+function normalizePersistedNodeTyping(value: unknown): ModelNodeTyping | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!isModelNodeTyping(value)) {
+    throw new ValidationError("Node typing must contain typeId and colorToken.");
+  }
+
+  const definition = getNodeTypeDefinition(value.typeId.trim());
+
+  if (!definition) {
+    throw new ValidationError(`Unknown node type "${value.typeId}".`);
+  }
+
+  if (value.colorToken !== definition.colorToken) {
+    throw new ValidationError(`Node type "${definition.id}" must use color token "${definition.colorToken}".`);
+  }
+
+  return {
+    typeId: definition.id,
+    colorToken: definition.colorToken
+  };
+}
+
+function mergeNotationPaths(existingPaths: string[] | undefined, nextPath: string): string[] {
+  const mergedPaths = [...(existingPaths ?? []), nextPath];
+
+  return mergedPaths.filter((candidate, index) => mergedPaths.indexOf(candidate) === index);
+}
+
 function edgeReferencesNode(edge: ModelEdge, nodeId: string): boolean {
   return edge.source === nodeId || edge.target === nodeId;
 }
@@ -1131,4 +1602,36 @@ function validateNodeDrilldowns(value: unknown, currentModelPath: string): strin
   }
 
   return nextDrilldowns;
+}
+
+function validateNodeTyping(value: unknown): ModelNodeTyping | null {
+  if (value === null) {
+    return null;
+  }
+
+  const normalizedTyping = normalizePersistedNodeTyping(value);
+
+  if (!normalizedTyping) {
+    throw new ValidationError("Node typing must contain a valid catalog type.");
+  }
+
+  return normalizedTyping;
+}
+
+function ensureNotationAllowsTyping(notation: NotationDetails, typing: ModelNodeTyping): void {
+  const matchingType = notation.types.find((candidate) => candidate.id === typing.typeId);
+
+  if (!matchingType) {
+    throw new ValidationError(`Type "${typing.typeId}" is not available in notation "${notation.id}".`);
+  }
+
+  const definition = getNodeTypeDefinition(typing.typeId);
+
+  if (!definition || matchingType.color !== definition.hexColor) {
+    throw new ValidationError(`Notation "${notation.id}" does not map cleanly to the MVP type catalog.`);
+  }
+
+  if (typing.colorToken !== definition.colorToken) {
+    throw new ValidationError(`Type "${typing.typeId}" must use color token "${definition.colorToken}".`);
+  }
 }

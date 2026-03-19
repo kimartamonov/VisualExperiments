@@ -1,6 +1,14 @@
-import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 
 import {
+  createNotation,
   createEdge,
   createFrame,
   createModel,
@@ -13,18 +21,24 @@ import {
   getModel,
   getProject,
   getProjectTree,
+  listNotations,
   listProjects,
   ModelDetails,
   ModelFrame,
   ModelNode,
   ModelNodePosition,
+  NodeUpdatePatch,
+  NotationDetails,
   ProjectDetails,
+  ProjectSaveResult,
   ProjectSummary,
   ProjectTreeNode,
+  saveProject,
   stepUpFrame,
   updateFrame,
   updateNode
 } from "./api";
+import { getNodeTypeDefinition, NODE_TYPE_DEFINITIONS } from "../shared/node-typing";
 import {
   canNavigateBack,
   createNavigationState,
@@ -90,6 +104,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [currentProject, setCurrentProject] = useState<ProjectDetails | null>(null);
   const [projectTree, setProjectTree] = useState<ProjectTreeNode | null>(null);
+  const [projectNotations, setProjectNotations] = useState<NotationDetails[]>([]);
   const [currentModel, setCurrentModel] = useState<ModelDetails | null>(null);
   const [navigationState, setNavigationState] = useState<NavigationState>(() => createNavigationState());
   const [selectedTreePath, setSelectedTreePath] = useState<string>("project.yaml");
@@ -99,18 +114,24 @@ export function App() {
   const [edgeCreationSourceId, setEdgeCreationSourceId] = useState<string | null>(null);
   const [nodeLabelDraft, setNodeLabelDraft] = useState("");
   const [nodeDescriptionDraft, setNodeDescriptionDraft] = useState("");
+  const [nodeTypeIdDraft, setNodeTypeIdDraft] = useState("");
+  const [lastCreatedNotation, setLastCreatedNotation] = useState<NotationDetails | null>(null);
   const [frameNameDraft, setFrameNameDraft] = useState("");
   const [frameDescriptionDraft, setFrameDescriptionDraft] = useState("");
   const [frameNodeIdsDraft, setFrameNodeIdsDraft] = useState<string[]>([]);
   const [existingDrilldownTargetPath, setExistingDrilldownTargetPath] = useState("");
   const [projectName, setProjectName] = useState("");
   const [modelName, setModelName] = useState("");
+  const [modelNotationIdDraft, setModelNotationIdDraft] = useState("");
+  const [createNodeTypeIdDraft, setCreateNodeTypeIdDraft] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingProject, setLoadingProject] = useState(false);
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingModel, setLoadingModel] = useState(false);
   const [submittingProject, setSubmittingProject] = useState(false);
   const [submittingModel, setSubmittingModel] = useState(false);
+  const [submittingNotation, setSubmittingNotation] = useState(false);
+  const [savingProject, setSavingProject] = useState(false);
   const [mutatingNodeId, setMutatingNodeId] = useState<string | null>(null);
   const [mutatingEdgeId, setMutatingEdgeId] = useState<string | null>(null);
   const [mutatingFrameId, setMutatingFrameId] = useState<string | null>(null);
@@ -118,6 +139,8 @@ export function App() {
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [drilldownRecovery, setDrilldownRecovery] = useState<DrilldownRecoveryState | null>(null);
   const [stepUpRecovery, setStepUpRecovery] = useState<StepUpRecoveryState | null>(null);
+  const [lastProjectSave, setLastProjectSave] = useState<ProjectSaveResult | null>(null);
+  const [saveCheckpointPending, setSaveCheckpointPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => readProjectIdFromLocation());
   const activeProjectIdRef = useRef<string | null>(activeProjectId);
@@ -127,6 +150,21 @@ export function App() {
   const selectedNode = currentModel?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge = currentModel?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedFrame = currentModel?.frames.find((frame) => frame.id === selectedFrameId) ?? null;
+  const currentNotation =
+    currentModel && currentModel.notation !== "freeform"
+      ? projectNotations.find((notation) => notation.id === currentModel.notation) ?? null
+      : null;
+  const notationFallbackActive = Boolean(currentModel && currentModel.notation !== "freeform" && !currentNotation);
+  const availableNotationTypeDefinitions = currentNotation ? resolveNotationTypeDefinitions(currentNotation) : [];
+  const availableNodeTypeDefinitions = currentNotation ? availableNotationTypeDefinitions : NODE_TYPE_DEFINITIONS;
+  const typedNodeCount = currentModel?.nodes.filter((node) => Boolean(node.typing)).length ?? 0;
+  const selectedNodeTypeDefinition = selectedNode?.typing ? getNodeTypeDefinition(selectedNode.typing.typeId) ?? null : null;
+  const nodeTypeDraftDefinition =
+    nodeTypeIdDraft ? availableNodeTypeDefinitions.find((definition) => definition.id === nodeTypeIdDraft) ?? null : null;
+  const createNodeTypeDefinition =
+    createNodeTypeIdDraft
+      ? availableNotationTypeDefinitions.find((definition) => definition.id === createNodeTypeIdDraft) ?? null
+      : null;
   const availableDrilldownTargets =
     currentModel && projectTree
       ? collectModelPaths(projectTree).filter(
@@ -169,6 +207,7 @@ export function App() {
     if (!activeProjectId) {
       setCurrentProject(null);
       setProjectTree(null);
+      setProjectNotations([]);
       setCurrentModel(null);
       setNavigationState(createNavigationState());
       setSelectedTreePath("project.yaml");
@@ -211,13 +250,39 @@ export function App() {
   useEffect(() => {
     setNodeLabelDraft(selectedNode?.label ?? "");
     setNodeDescriptionDraft(selectedNode?.description ?? "");
-  }, [selectedNode?.id, selectedNode?.label, selectedNode?.description]);
+    setNodeTypeIdDraft(selectedNode?.typing?.typeId ?? "");
+  }, [selectedNode?.id, selectedNode?.label, selectedNode?.description, selectedNode?.typing?.typeId]);
 
   useEffect(() => {
     setFrameNameDraft(selectedFrame?.name ?? "");
     setFrameDescriptionDraft(selectedFrame?.description ?? "");
     setFrameNodeIdsDraft(selectedFrame?.nodeIds ?? []);
   }, [selectedFrame?.id, selectedFrame?.name, selectedFrame?.description, selectedFrame?.nodeIds]);
+
+  useEffect(() => {
+    setLastCreatedNotation((current) =>
+      currentModel && current && current.id === currentModel.notation ? current : null
+    );
+  }, [currentModel?.path, currentModel?.notation]);
+
+  useEffect(() => {
+    const knownNotationIds = new Set(projectNotations.map((notation) => notation.id));
+
+    setModelNotationIdDraft((current) => (current && !knownNotationIds.has(current) ? "" : current));
+  }, [projectNotations]);
+
+  useEffect(() => {
+    if (!currentNotation) {
+      setCreateNodeTypeIdDraft("");
+      return;
+    }
+
+    if (availableNotationTypeDefinitions.some((definition) => definition.id === createNodeTypeIdDraft)) {
+      return;
+    }
+
+    setCreateNodeTypeIdDraft(availableNotationTypeDefinitions[0]?.id ?? "");
+  }, [currentNotation?.id, availableNotationTypeDefinitions, createNodeTypeIdDraft]);
 
   useEffect(() => {
     setDrilldownRecovery((current) => (current && current.nodeId === selectedNode?.id ? current : null));
@@ -320,15 +385,33 @@ export function App() {
     setExistingDrilldownTargetPath("");
     setDrilldownRecovery(null);
     setStepUpRecovery(null);
+    setLastProjectSave(null);
+    setSaveCheckpointPending(false);
+  }
+
+  function markProjectCheckpointPending() {
+    setSaveCheckpointPending(true);
+  }
+
+  function markProjectCheckpointSaved(result: ProjectSaveResult) {
+    setLastProjectSave(result);
+    setSaveCheckpointPending(false);
   }
 
   async function openProject(projectId: string) {
     setLoadingProject(true);
 
     try {
-      const [project, tree] = await Promise.all([getProject(projectId), getProjectTree(projectId)]);
+      const [project, tree, notations] = await Promise.all([
+        getProject(projectId),
+        getProjectTree(projectId),
+        listNotations(projectId)
+      ]);
       setCurrentProject(project);
       setProjectTree(tree);
+      setProjectNotations(notations);
+      setLastProjectSave(null);
+      setSaveCheckpointPending(false);
       setError(null);
 
       if (project.defaultModel) {
@@ -400,9 +483,14 @@ export function App() {
     setLoadingTree(true);
 
     try {
-      const [tree, project] = await Promise.all([getProjectTree(activeProjectId), getProject(activeProjectId)]);
+      const [tree, project, notations] = await Promise.all([
+        getProjectTree(activeProjectId),
+        getProject(activeProjectId),
+        listNotations(activeProjectId)
+      ]);
       setProjectTree(tree);
       setCurrentProject(project);
+      setProjectNotations(notations);
 
       const candidatePath = nextSelectedPath ?? selectedTreePath;
       if (candidatePath && treeContainsPath(tree, candidatePath)) {
@@ -418,6 +506,25 @@ export function App() {
       setError(getErrorMessage(requestError));
     } finally {
       setLoadingTree(false);
+    }
+  }
+
+  async function handleSaveProject() {
+    if (!activeProjectId) {
+      return;
+    }
+
+    setSavingProject(true);
+
+    try {
+      const result = await saveProject(activeProjectId);
+      markProjectCheckpointSaved(result);
+      await Promise.all([refreshTree(currentModelRef.current?.path ?? selectedTreePath), loadProjects()]);
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSavingProject(false);
     }
   }
 
@@ -448,7 +555,7 @@ export function App() {
     setSubmittingModel(true);
 
     try {
-      const model = await createModel(activeProjectId, modelName, selectedTreePath);
+      const model = await createModel(activeProjectId, modelName, selectedTreePath, modelNotationIdDraft || null);
       setModelName("");
       await Promise.all([
         refreshTree(model.path),
@@ -460,6 +567,7 @@ export function App() {
         }),
         loadProjects()
       ]);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -473,23 +581,54 @@ export function App() {
       return;
     }
 
+    const nextTyping = currentNotation ? buildNodeTyping(createNodeTypeIdDraft) : undefined;
+
+    if (currentNotation && !nextTyping) {
+      setError(`Choose one of the notation types from "${currentNotation.name}" before creating a node.`);
+      return;
+    }
+
     setMutatingNodeId("creating-node");
 
     try {
       const result = await createNode(
         activeProjectId,
         currentModel.path,
-        position ?? getDefaultNodePosition(currentModel.nodes.length)
+        position ?? getDefaultNodePosition(currentModel.nodes.length),
+        undefined,
+        nextTyping
       );
       setCurrentModel(result.model);
       setSelectedNodeId(result.node.id);
       setSelectedEdgeId(null);
       setSelectedFrameId(null);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
       setMutatingNodeId(null);
+    }
+  }
+
+  async function handleCreateNotationFromCurrentModel() {
+    if (!activeProjectId || !currentModel) {
+      return;
+    }
+
+    setSubmittingNotation(true);
+
+    try {
+      const result = await createNotation(activeProjectId, currentModel.path);
+      setCurrentModel(result.model);
+      setLastCreatedNotation(result.notation);
+      await Promise.all([refreshTree(result.notation.path), loadProjects()]);
+      markProjectCheckpointPending();
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSubmittingNotation(false);
     }
   }
 
@@ -502,7 +641,8 @@ export function App() {
 
     await persistNodePatch(selectedNode.id, {
       label: nodeLabelDraft,
-      description: nodeDescriptionDraft
+      description: nodeDescriptionDraft,
+      typing: buildNodeTyping(nodeTypeIdDraft)
     });
   }
 
@@ -520,6 +660,7 @@ export function App() {
       setSelectedEdgeId(null);
       setSelectedFrameId(null);
       setEdgeCreationSourceId((current) => (current === selectedNode.id ? null : current));
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -551,6 +692,7 @@ export function App() {
       setSelectedEdgeId(result.edge.id);
       setSelectedFrameId(null);
       setEdgeCreationSourceId(null);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -571,6 +713,7 @@ export function App() {
       setCurrentModel(model);
       setSelectedEdgeId(null);
       setSelectedFrameId(null);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -593,6 +736,7 @@ export function App() {
       setSelectedEdgeId(null);
       setSelectedFrameId(result.frame.id);
       setEdgeCreationSourceId(null);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -617,6 +761,7 @@ export function App() {
         nodeIds: frameNodeIdsDraft
       });
       setCurrentModel(model);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -636,6 +781,7 @@ export function App() {
       const model = await deleteFrame(activeProjectId, currentModel.path, selectedFrame.id);
       setCurrentModel(model);
       setSelectedFrameId(null);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -646,7 +792,7 @@ export function App() {
 
   async function persistNodePatch(
     nodeId: string,
-    patch: Partial<Pick<ModelNode, "label" | "description" | "position" | "drilldowns">>,
+    patch: NodeUpdatePatch,
     shouldRecoverOnError = false
   ) {
     const projectId = activeProjectIdRef.current;
@@ -661,6 +807,7 @@ export function App() {
     try {
       const updatedModel = await updateNode(projectId, model.path, nodeId, patch);
       setCurrentModel(updatedModel);
+      markProjectCheckpointPending();
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -712,6 +859,7 @@ export function App() {
       setCurrentModel(updatedModel);
       setDrilldownRecovery(null);
       await Promise.all([refreshTree(childModel.path), loadProjects()]);
+      markProjectCheckpointPending();
       await openModel(activeProjectId, childModel.path, {
         navigationMode: "push",
         failureMode: "keep-current",
@@ -747,6 +895,7 @@ export function App() {
 
       setCurrentModel(updatedModel);
       setDrilldownRecovery(null);
+      markProjectCheckpointPending();
       const opened = await openModel(activeProjectId, targetPath, {
         navigationMode: "push",
         failureMode: "keep-current",
@@ -792,6 +941,31 @@ export function App() {
     setDrilldownRecovery(null);
   }
 
+  async function handleRemoveDrilldown(targetPath: string) {
+    if (!activeProjectId || !currentModel || !selectedNode) {
+      return;
+    }
+
+    setMutatingDrilldownNodeId(selectedNode.id);
+
+    try {
+      const updatedModel = await updateNode(activeProjectId, currentModel.path, selectedNode.id, {
+        drilldowns: selectedNode.drilldowns.filter((candidate) => candidate !== targetPath)
+      });
+
+      setCurrentModel(updatedModel);
+      setDrilldownRecovery((current) =>
+        current?.nodeId === selectedNode.id && current.targetPath === targetPath ? null : current
+      );
+      markProjectCheckpointPending();
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setMutatingDrilldownNodeId(null);
+    }
+  }
+
   async function handleFrameStepUp(mode: FrameStepUpMode = "default") {
     if (!activeProjectId || !currentModel || !selectedFrame) {
       return;
@@ -806,6 +980,7 @@ export function App() {
       setCurrentModel(result.sourceModel);
       setStepUpRecovery(null);
       await refreshTree(targetPath);
+      markProjectCheckpointPending();
       const opened = await openModel(activeProjectId, targetPath, {
         navigationMode: "push",
         failureMode: "keep-current",
@@ -1076,6 +1251,14 @@ export function App() {
                   <span className="selection-path">
                     {currentModel ? currentModel.path : "Select a YAML model from the project tree to begin navigation."}
                   </span>
+                  {notationFallbackActive && currentModel ? (
+                    <div className="notation-recovery-banner">
+                      <strong>Notation fallback active</strong>
+                      <span className="selection-path">
+                        Notation `{currentModel.notation}` is missing or invalid, so this model is open in freeform recovery mode.
+                      </span>
+                    </div>
+                  ) : null}
                   {navigationBreadcrumbs.length > 0 ? (
                     <ol className="breadcrumb-list" aria-label="Model breadcrumbs">
                       {navigationBreadcrumbs.map((target, index) => {
@@ -1105,6 +1288,26 @@ export function App() {
                 </div>
               </div>
               <div className="toolbar-actions">
+                <div className={`save-status-card ${saveCheckpointPending ? "save-status-card-pending" : ""}`}>
+                  <span className="selection-label">Manual save</span>
+                  <strong>
+                    {saveCheckpointPending
+                      ? "Checkpoint recommended"
+                      : lastProjectSave
+                        ? "Last checkpoint saved"
+                        : "No explicit checkpoint yet"}
+                  </strong>
+                  <span className="selection-path">
+                    {saveCheckpointPending
+                      ? "Project changed since the last manual save. Save project to rewrite canonical YAML artifacts."
+                      : lastProjectSave
+                        ? `Saved ${formatTimestamp(lastProjectSave.savedAt)} | models ${lastProjectSave.modelCount} | notations ${lastProjectSave.notationCount}`
+                        : "Save project rewrites project.yaml, models, and notation files while keeping runtime breadcrumbs and selection transient."}
+                  </span>
+                </div>
+                <button type="button" onClick={() => void handleSaveProject()} disabled={savingProject}>
+                  {savingProject ? "Saving project..." : "Save project"}
+                </button>
                 <button type="button" className="ghost-button" onClick={() => navigateTo("/")}>
                   Back to projects
                 </button>
@@ -1124,11 +1327,11 @@ export function App() {
                   <h3>Project tree</h3>
                 </div>
                 <p className="panel-copy">
-                  Create the next model in the selected folder context, or open an existing YAML model to continue editing.
+                  Create the next model in the selected folder context, either as freeform or bound to one of the registered notations.
                 </p>
 
                 <form className="model-form" onSubmit={handleCreateModel}>
-                  <label htmlFor="modelName">New freeform model</label>
+                  <label htmlFor="modelName">New model</label>
                   <div className="form-row">
                     <input
                       id="modelName"
@@ -1142,7 +1345,31 @@ export function App() {
                       {submittingModel ? "Creating..." : "Create model"}
                     </button>
                   </div>
+                  <label htmlFor="modelNotation">Notation</label>
+                  <select
+                    id="modelNotation"
+                    name="modelNotation"
+                    value={modelNotationIdDraft}
+                    onChange={(event) => setModelNotationIdDraft(event.target.value)}
+                  >
+                    <option value="">Freeform</option>
+                    {projectNotations.map((notation) => (
+                      <option key={notation.id} value={notation.id}>
+                        {notation.name} ({notation.id})
+                      </option>
+                    ))}
+                  </select>
                   <p className="form-hint">Current target: {describeCreationTarget(selectedTreePath)}</p>
+                  <p className="form-hint">
+                    {modelNotationIdDraft
+                      ? `Typed model will bind to notation "${modelNotationIdDraft}".`
+                      : "Freeform keeps notation set to `freeform` until you extract a notation later."}
+                  </p>
+                  {!projectNotations.length ? (
+                    <p className="form-hint">
+                      No project notations yet. Create one from a typed freeform model to unlock typed-model creation.
+                    </p>
+                  ) : null}
                 </form>
 
                 {projectTree ? (
@@ -1156,17 +1383,34 @@ export function App() {
                 <div className="panel-header panel-header-row">
                   <div>
                     <span className="panel-kicker">Center panel</span>
-                    <h3>{currentModel ? "Freeform canvas" : "Canvas waiting for model"}</h3>
+                    <h3>{currentModel ? (currentNotation ? "Typed canvas" : "Freeform canvas") : "Canvas waiting for model"}</h3>
                   </div>
                   {currentModel ? (
                     <div className="toolbar-actions">
+                      {currentNotation ? (
+                        <select
+                          aria-label="Typed node kind"
+                          value={createNodeTypeIdDraft}
+                          onChange={(event) => setCreateNodeTypeIdDraft(event.target.value)}
+                        >
+                          {availableNotationTypeDefinitions.map((definition) => (
+                            <option key={definition.id} value={definition.id}>
+                              {definition.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
                       <button
                         type="button"
                         className="ghost-button"
                         onClick={() => void handleCreateNode()}
-                        disabled={mutatingNodeId === "creating-node"}
+                        disabled={mutatingNodeId === "creating-node" || Boolean(currentNotation && !createNodeTypeIdDraft)}
                       >
-                        {mutatingNodeId === "creating-node" ? "Adding..." : "Add node"}
+                        {mutatingNodeId === "creating-node"
+                          ? "Adding..."
+                          : currentNotation
+                            ? "Add typed node"
+                            : "Add node"}
                       </button>
                       <button
                         type="button"
@@ -1175,6 +1419,14 @@ export function App() {
                         disabled={mutatingFrameId === "creating-frame"}
                       >
                         {mutatingFrameId === "creating-frame" ? "Adding..." : "Add frame"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => void handleCreateNotationFromCurrentModel()}
+                        disabled={submittingNotation || typedNodeCount === 0}
+                      >
+                        {submittingNotation ? "Creating notation..." : "Create notation"}
                       </button>
                     </div>
                   ) : null}
@@ -1193,17 +1445,30 @@ export function App() {
                   ) : (
                     <>
                       <p>
-                        Double-click to place nodes, drag cards to move them, then create outgoing edges or define frames
-                        while the workspace keeps the current model path and return targets visible.
+                        {currentNotation
+                          ? `Double-click to place typed nodes from "${currentNotation.name}", drag cards to move them, then add edges or frames on the same shared canvas infrastructure.`
+                          : "Double-click to place nodes, drag cards to move them, then create outgoing edges or define frames while the workspace keeps the current model path and return targets visible. Notation extraction only uses typed nodes and leaves edges, frames, and layout out of the artifact."}
                       </p>
                       <div className="selection-card">
                         <span className="selection-label">Opened model</span>
                         <strong>{currentModel.name}</strong>
                         <span className="selection-path">{currentModel.path}</span>
                         <span className="selection-path">
+                          Notation: {currentNotation ? `${currentNotation.name} (${currentNotation.id})` : "freeform"}
+                        </span>
+                        <span className="selection-path">
                           Navigation depth: {navigationBreadcrumbs.length} {navigationBreadcrumbs.length === 1 ? "model" : "models"}
                         </span>
                       </div>
+                      {currentNotation && createNodeTypeDefinition ? (
+                        <div className="type-preview-card" data-node-type-color={createNodeTypeDefinition.colorToken}>
+                          <strong>New nodes will use {createNodeTypeDefinition.label}</strong>
+                          <span>{createNodeTypeDefinition.description}</span>
+                          <span className="form-hint">
+                            Typed model creation reuses notation types directly instead of freeform late-typing.
+                          </span>
+                        </div>
+                      ) : null}
                       {edgeCreationSourceId ? (
                         <div className="edge-mode-banner">
                           <span className="selection-label">Edge creation</span>
@@ -1290,26 +1555,34 @@ export function App() {
                         {currentModel.nodes.length === 0 ? (
                           <div className="canvas-node-placeholder">Double-click anywhere here to create the first node</div>
                         ) : null}
-                        {currentModel.nodes.map((node) => (
-                          <button
-                            key={node.id}
-                            type="button"
-                            className={`canvas-node-card ${
-                              selectedNodeId === node.id ? "canvas-node-card-selected" : ""
-                            } ${draggingNodeId === node.id ? "canvas-node-card-dragging" : ""} ${
-                              edgeCreationSourceId === node.id ? "canvas-node-card-source" : ""
-                            }`}
-                            style={{
-                              transform: `translate(${node.position.x}px, ${node.position.y}px)`
-                            }}
-                            onClick={(event) => handleNodeClick(event, node)}
-                            onPointerDown={(event) => handleNodePointerDown(event, node)}
-                            onDoubleClick={(event) => event.stopPropagation()}
-                          >
-                            <strong>{node.label}</strong>
-                            <span>{node.description || "No description yet"}</span>
-                          </button>
-                        ))}
+                        {currentModel.nodes.map((node) => {
+                          const nodeTypeDefinition = node.typing ? getNodeTypeDefinition(node.typing.typeId) ?? null : null;
+
+                          return (
+                            <button
+                              key={node.id}
+                              type="button"
+                              className={`canvas-node-card ${
+                                selectedNodeId === node.id ? "canvas-node-card-selected" : ""
+                              } ${draggingNodeId === node.id ? "canvas-node-card-dragging" : ""} ${
+                                edgeCreationSourceId === node.id ? "canvas-node-card-source" : ""
+                              }`}
+                              data-node-type-color={nodeTypeDefinition?.colorToken ?? "none"}
+                              style={{
+                                transform: `translate(${node.position.x}px, ${node.position.y}px)`
+                              }}
+                              onClick={(event) => handleNodeClick(event, node)}
+                              onPointerDown={(event) => handleNodePointerDown(event, node)}
+                              onDoubleClick={(event) => event.stopPropagation()}
+                            >
+                              <span className="canvas-node-type-badge">
+                                {nodeTypeDefinition?.label ?? "Freeform"}
+                              </span>
+                              <strong>{node.label}</strong>
+                              <span>{node.description || "No description yet"}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </>
                   )}
@@ -1368,6 +1641,61 @@ export function App() {
                           onChange={(event) => setNodeDescriptionDraft(event.target.value)}
                           rows={5}
                         />
+                        <div className="type-card">
+                          <span className="selection-label">{currentNotation ? "Notation type" : "Late typing"}</span>
+                          <label htmlFor="nodeType">Type</label>
+                          <select
+                            id="nodeType"
+                            name="nodeType"
+                            value={nodeTypeIdDraft}
+                            onChange={(event) => setNodeTypeIdDraft(event.target.value)}
+                          >
+                            {!currentNotation ? <option value="">Untyped freeform node</option> : null}
+                            {availableNodeTypeDefinitions.map((definition) => (
+                              <option key={definition.id} value={definition.id}>
+                                {definition.label}
+                              </option>
+                            ))}
+                          </select>
+                          {nodeTypeDraftDefinition ? (
+                            <div
+                              className="type-preview-card"
+                              data-node-type-color={nodeTypeDraftDefinition.colorToken}
+                            >
+                              <strong>{nodeTypeDraftDefinition.label}</strong>
+                              <span>{nodeTypeDraftDefinition.description}</span>
+                              <span className="form-hint">
+                                Persisted as `{nodeTypeDraftDefinition.id}` with color cue `{nodeTypeDraftDefinition.colorToken}`.
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="form-hint">
+                              {currentNotation
+                                ? `This typed model uses "${currentNotation.name}", so node types come from its notation catalog.`
+                                : "Leave the node untyped to keep it in freeform state until notation is extracted later."}
+                            </p>
+                          )}
+                          {!currentNotation ? (
+                            <div className="property-actions">
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => setNodeTypeIdDraft("")}
+                                disabled={mutatingNodeId === selectedNode.id || !nodeTypeIdDraft}
+                              >
+                                Remove type
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="property-card">
+                          <span className="selection-label">Current semantic cue</span>
+                          <strong>
+                            {selectedNodeTypeDefinition
+                              ? `${selectedNodeTypeDefinition.label} (${selectedNode.typing?.colorToken})`
+                              : "Freeform / untyped"}
+                          </strong>
+                        </div>
                         <p className="form-hint">
                           Position: {selectedNode.position.x}, {selectedNode.position.y}
                         </p>
@@ -1406,16 +1734,26 @@ export function App() {
 
                                 return (
                                   <li key={`${selectedNode.id}-${drilldownPath}`}>
-                                    <button
-                                      type="button"
-                                      className={`edge-list-item ${!isAvailable ? "edge-list-item-warning" : ""}`}
-                                      onClick={() => void handleOpenDrilldown(drilldownPath)}
-                                      disabled={mutatingDrilldownNodeId === selectedNode.id}
-                                    >
-                                      {isAvailable ? "Open" : "Missing"}
-                                      {" | "}
-                                      {drilldownPath}
-                                    </button>
+                                    <div className="linked-model-item">
+                                      <button
+                                        type="button"
+                                        className={`edge-list-item ${!isAvailable ? "edge-list-item-warning" : ""}`}
+                                        onClick={() => void handleOpenDrilldown(drilldownPath)}
+                                        disabled={mutatingDrilldownNodeId === selectedNode.id}
+                                      >
+                                        {isAvailable ? "Open" : "Missing"}
+                                        {" | "}
+                                        {drilldownPath}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ghost-button linked-model-remove"
+                                        onClick={() => void handleRemoveDrilldown(drilldownPath)}
+                                        disabled={mutatingDrilldownNodeId === selectedNode.id}
+                                      >
+                                        Remove link
+                                      </button>
+                                    </div>
                                   </li>
                                 );
                               })}
@@ -1442,6 +1780,14 @@ export function App() {
                                   disabled={mutatingDrilldownNodeId === selectedNode.id || !existingDrilldownTargetPath}
                                 >
                                   Replace with selected model
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => void handleRemoveDrilldown(selectedNodeRecoveryTarget)}
+                                  disabled={mutatingDrilldownNodeId === selectedNode.id}
+                                >
+                                  Remove broken link
                                 </button>
                               </div>
                             </div>
@@ -1673,6 +2019,47 @@ export function App() {
                         <strong>{currentModel.path}</strong>
                       </div>
                       <div className="property-card">
+                        <span className="selection-label">Typing status</span>
+                        <strong>
+                          {typedNodeCount} typed node{typedNodeCount === 1 ? "" : "s"}
+                        </strong>
+                        <span className="selection-path">
+                          {currentNotation
+                            ? `Node creation is constrained by notation "${currentNotation.id}" in the canvas toolbar.`
+                            : typedNodeCount === 0
+                              ? "Assign at least one node type before creating notation."
+                              : "Notation extraction uses unique type/color pairs only."}
+                        </span>
+                      </div>
+                      <div className="property-card">
+                        <span className="selection-label">Notation binding</span>
+                        <strong>
+                          {currentModel.notation === "freeform"
+                            ? "Freeform (no notation yet)"
+                            : notationFallbackActive
+                              ? `${currentModel.notation} (fallback freeform mode)`
+                              : currentModel.notation}
+                        </strong>
+                        <span className="selection-path">
+                          {lastCreatedNotation
+                            ? `Latest notation file: ${lastCreatedNotation.path}`
+                            : currentModel.notation === "freeform"
+                              ? "Create notation to register a reusable type catalog in project.yaml."
+                              : currentNotation
+                                ? `Manifest resolves this notation through ${currentNotation.path}.`
+                                : "Manifest reference could not be resolved, so the model stays open in freeform recovery mode until the notation file is restored."}
+                        </span>
+                        <div className="property-actions">
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateNotationFromCurrentModel()}
+                            disabled={submittingNotation || typedNodeCount === 0 || currentModel.notation !== "freeform"}
+                          >
+                            {submittingNotation ? "Creating notation..." : "Create notation from model"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="property-card">
                         <span className="selection-label">Edges</span>
                         {currentModel.edges.length === 0 ? (
                           <strong>No edges yet</strong>
@@ -1794,16 +2181,35 @@ function TreeNodeView({ node, selectedPath, onSelectNode, depth }: TreeNodeViewP
 
 function buildModelOpenErrorMessage(targetLabel: string, error: unknown, failureMode?: "keep-current" | "clear-current"): string {
   const baseMessage = getErrorMessage(error);
+  const recoveryHint = getRecoveryHint(baseMessage);
 
   if (failureMode === "clear-current") {
-    return `Could not open ${targetLabel}. ${baseMessage} Select another model from the project tree to recover.`;
+    return `Could not open ${targetLabel}. ${baseMessage} ${recoveryHint}`;
   }
 
-  return `Could not open ${targetLabel}. ${baseMessage} The current workspace context stayed in place so you can recover from the tree or breadcrumbs.`;
+  return `Could not open ${targetLabel}. ${baseMessage} ${recoveryHint}`;
 }
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected application error.";
+}
+
+function getRecoveryHint(message: string): string {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("invalid model document")) {
+    return "Repair the YAML file or open a different model from the tree; the rest of the workspace remains available.";
+  }
+
+  if (normalized.includes("invalid notation document") || normalized.includes("not registered in project.yaml")) {
+    return "Restore the notation file or continue in freeform recovery mode where available.";
+  }
+
+  if (normalized.includes("not found")) {
+    return "Use the project tree, recovery card, or breadcrumbs to switch to a valid artifact.";
+  }
+
+  return "The current workspace context stayed available so you can recover from the tree or breadcrumbs.";
 }
 
 function sortProjects(projects: ProjectSummary[]): ProjectSummary[] {
@@ -1824,6 +2230,16 @@ function formatSelectedPath(path: string): string {
   return path === "project-root" ? "/" : path;
 }
 
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
+
+  return date.toLocaleString();
+}
+
 function collectModelPaths(node: ProjectTreeNode): string[] {
   const paths: string[] = [];
 
@@ -1842,8 +2258,27 @@ function isModelFilePath(path: string): boolean {
   return path !== "project.yaml" && path.endsWith(".yaml");
 }
 
+function resolveNotationTypeDefinitions(notation: NotationDetails) {
+  return notation.types
+    .map((notationType) => getNodeTypeDefinition(notationType.id))
+    .filter((definition): definition is NonNullable<typeof definition> => Boolean(definition));
+}
+
 function buildDrilldownModelName(nodeLabel: string): string {
   return `${nodeLabel.trim() || "Node"} Detail`;
+}
+
+function buildNodeTyping(typeId: string) {
+  const definition = getNodeTypeDefinition(typeId);
+
+  if (!definition) {
+    return null;
+  }
+
+  return {
+    typeId: definition.id,
+    colorToken: definition.colorToken
+  };
 }
 
 function mergeDrilldownPaths(existingPaths: string[], nextPath: string, replacePath?: string): string[] {
